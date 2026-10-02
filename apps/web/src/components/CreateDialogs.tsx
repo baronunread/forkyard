@@ -60,7 +60,7 @@ export function CreateYardDialog({ open, setOpen, onCreated }: { open: boolean; 
         />
         <div className="flex justify-end gap-2 pt-2">
           <Button onClick={() => setOpen(false)}>Cancel</Button>
-          <Button variant="primary" loading={busy} disabled={id.length < 2} onClick={submit}>
+          <Button variant="primary" className="fy-primary" loading={busy} disabled={id.length < 2} onClick={submit}>
             Create yard
           </Button>
         </div>
@@ -128,7 +128,7 @@ export function CreateTaskDialog({ yard, open, setOpen, onCreated }: { yard: str
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button onClick={close}>Cancel</Button>
-              <Button variant="primary" loading={busy} disabled={!title || agents.length === 0} onClick={submit}>
+              <Button variant="primary" className="fy-primary" loading={busy} disabled={!title || agents.length === 0} onClick={submit}>
                 Fan out to {agents.length} agent{agents.length === 1 ? "" : "s"}
               </Button>
             </div>
@@ -148,7 +148,7 @@ export function CreateTaskDialog({ yard, open, setOpen, onCreated }: { yard: str
               ))}
             </div>
             <div className="flex justify-end pt-2">
-              <Button variant="primary" onClick={close}>
+              <Button variant="primary" className="fy-primary" onClick={close}>
                 Open task
               </Button>
             </div>

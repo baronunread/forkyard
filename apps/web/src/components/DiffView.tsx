@@ -63,8 +63,15 @@ export function FileDiff({
 
   return (
     <div
-      className="overflow-hidden rounded-lg border border-kumo-hairline bg-kumo-base"
-      style={{ "--diffs-light-bg": "var(--fy-surface)", "--diffs-dark-bg": "var(--fy-surface)" } as React.CSSProperties}
+      className="overflow-hidden fy-card"
+      style={
+        {
+          "--diffs-light-bg": "var(--fy-surface)",
+          "--diffs-dark-bg": "var(--fy-surface)",
+          "--diffs-font-family": "var(--font-mono)",
+          "--diffs-font-fallback": "ui-monospace, monospace",
+        } as React.CSSProperties
+      }
     >
       {header}
       <MultiFileDiff<HunkMeta, undefined>
@@ -78,10 +85,14 @@ export function FileDiff({
         }}
         lineAnnotations={annotations}
         renderAnnotation={(a) => (
-          <div data-hunk={a.metadata.hunkId} className="flex items-center gap-2 border-y border-kumo-hairline bg-kumo-elevated px-3 py-1 text-xs">
+          <div
+            data-hunk={a.metadata.hunkId}
+            className="flex items-center gap-2 px-3 py-1.5 text-xs"
+            style={{ background: "var(--fy-surface-2)", borderTop: "1px solid var(--fy-border)", borderBottom: "1px solid var(--fy-border)", fontFamily: "var(--font-sans)" }}
+          >
             <AgentBadge agent={a.metadata.agent} size={16} />
             <span className="font-medium">{a.metadata.agent.name}</span>
-            <span className="text-kumo-subtle">
+            <span className="font-mono text-kumo-subtle">
               hunk {a.metadata.index}/{a.metadata.total}
             </span>
             {a.metadata.note && <span className="truncate text-kumo-subtle">— {a.metadata.note}</span>}

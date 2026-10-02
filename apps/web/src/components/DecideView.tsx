@@ -1,4 +1,4 @@
-import { Badge, Banner, Button, Checkbox, Dialog, Input, Loader, Radio } from "@cloudflare/kumo";
+import { Banner, Button, Checkbox, Dialog, Input, Loader, Radio } from "@cloudflare/kumo";
 import type { DecideInput, Selection } from "@forkyard/shared";
 import { CheckCircle, GitMerge, Trophy, Warning } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
@@ -7,7 +7,7 @@ import { fetchFileCompare } from "../lib/data";
 import { toastError, toasts } from "../lib/toast";
 import { AgentChip, type AgentLike } from "./AgentChip";
 import { FileDiff, LazyMount, type DiffStyle } from "./DiffView";
-import { Score } from "./Status";
+import { Pill, Score } from "./Status";
 
 type Pick = "whole" | Set<string>;
 const RESULT: AgentLike = { id: "result", name: "Combined result", initials: "∑", color: "#71717a" };
@@ -159,7 +159,7 @@ export function DecideView({
         <Button onClick={runPreview} disabled={!input} loading={busy === "preview"}>
           Preview result
         </Button>
-        <Button variant="primary" icon={<GitMerge />} disabled={!preview || preview.conflicts.length > 0} onClick={() => setConfirm(true)}>
+        <Button variant="primary" className="fy-primary" icon={<GitMerge />} disabled={!preview || preview.conflicts.length > 0} onClick={() => setConfirm(true)}>
           Apply to base
         </Button>
       </div>
@@ -190,7 +190,7 @@ export function DecideView({
           </Dialog.Description>
           <div className="mt-6 flex justify-end gap-2">
             <Button onClick={() => setConfirm(false)}>Cancel</Button>
-            <Button variant="primary" loading={busy === "apply"} onClick={apply}>
+            <Button variant="primary" className="fy-primary" loading={busy === "apply"} onClick={apply}>
               Apply
             </Button>
           </div>
@@ -228,13 +228,13 @@ function AssembleFile({
   }, [yard, task, path, heads]);
   const agents = new Map(detail.agents.map((a) => [a.id, a]));
   return (
-    <div className="rounded-lg border border-kumo-hairline bg-kumo-base">
+    <div className="fy-card">
       <div className="flex items-center gap-2 border-b border-kumo-hairline px-3 py-2">
         <span className="font-mono text-sm font-semibold">{path}</span>
         {overlap && (
-          <Badge variant="orange">
-            <Warning weight="fill" className="mr-1" /> overlap
-          </Badge>
+          <Pill>
+            <Warning weight="fill" style={{ color: "var(--fy-overlap)" }} /> overlap
+          </Pill>
         )}
       </div>
       {!data ? (

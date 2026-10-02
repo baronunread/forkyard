@@ -108,6 +108,8 @@ function TreeInner({
           "--trees-border-color-override": "var(--fy-border)",
           "--trees-search-bg-override": "var(--fy-surface-2)",
           "--trees-search-fg-override": "var(--fy-fg)",
+          "--trees-font-family-override": "var(--font-sans)",
+          "--trees-font-size-override": "13px",
         } as React.CSSProperties
       }
     />

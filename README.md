@@ -10,7 +10,7 @@ Built for Cloudflare's [“Build the next Git platform”](https://blog.cloudfla
 
 | Compare one file across agents | Decide: assemble hunks, preview, apply |
 | --- | --- |
-| ![Compare mode](docs/screenshots/compare-dark.png) | ![Decide mode](docs/screenshots/decide-light.png) |
+| ![Compare mode](docs/screenshots/compare-light.png) | ![Decide mode](docs/screenshots/decide-dark.png) |
 
 ## Quick start
 
@@ -137,6 +137,7 @@ With an agent key, ids default to the key's scope, so `workspace_get` takes no a
 - **Timeline** of yard events, filterable by agent and kind; everything updates live over the yard WebSocket.
 - **Keyboard**: ⌘K / Ctrl+K command palette, `[` `]` between agents, `1`–`9` to jump to a fork, `j` `k` between hunks, `a` `c` `d` for views, `s` split, `w` wrap, `t` timeline.
 - **Theme**: light / dark / system, remembered; Kumo tokens, diffs and the tree all follow the same mode.
+- **Design**: the look follows [`DESIGN.md`](DESIGN.md) — a Vercel-inspired system (Geist / Geist Mono, ink-on-near-white, hairline cards with stacked shadows, mono eyebrows). Its tokens are mapped onto Kumo's theme variables in `apps/web/src/styles.css`, so Kumo components render in that language; app-specific rules are at the end of DESIGN.md.
 
 ## Numbers
 

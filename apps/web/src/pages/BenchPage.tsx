@@ -1,4 +1,4 @@
-import { Banner, Button, Empty, LayerCard, Select, Table } from "@cloudflare/kumo";
+import { Banner, Button, Empty, Select, Table } from "@cloudflare/kumo";
 import { Lightning } from "@phosphor-icons/react";
 import { useState } from "react";
 import { call, client, yardRoute, type BenchRuns } from "../lib/api";
@@ -33,13 +33,13 @@ export function BenchPage() {
   return (
     <div className="fy-scroll mx-auto h-full max-w-5xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Benchmarks</h1>
+        <h1 className="fy-h1">Benchmarks</h1>
         <p className="mt-1 text-kumo-subtle">
           Forking is Forkyard's heartbeat: every task spawns several. These numbers come from this deployment (<code>/api/bench/fork</code>,{" "}
           <code>scripts/bench-*.ts</code>). Bench forks are deleted immediately.
         </p>
       </div>
-      <LayerCard className="space-y-3 p-4">
+      <div className="fy-card space-y-3 p-4">
         <div className="flex flex-wrap items-end gap-2">
           <Select
             label="Yard"
@@ -56,10 +56,10 @@ export function BenchPage() {
           ))}
         </div>
         <ResultsTable runs={forkRuns} />
-      </LayerCard>
+      </div>
 
-      <LayerCard className="space-y-3 p-4">
-        <h2 className="font-semibold">Event latency (push → visible)</h2>
+      <div className="fy-card space-y-3 p-4">
+        <h2 className="fy-h3">Event latency (push → visible)</h2>
         {eventRuns.length ? <ResultsTable runs={eventRuns} /> : <p className="text-sm text-kumo-subtle">Run <code>pnpm bench:events</code> to record end-to-end numbers.</p>}
         {latency.data && (
           <div className="grid gap-2 text-sm sm:grid-cols-2">
@@ -73,7 +73,7 @@ export function BenchPage() {
             </div>
           </div>
         )}
-      </LayerCard>
+      </div>
       {runs.error && <Banner variant="error" title="Could not load runs" description={runs.error.message} />}
     </div>
   );

@@ -1,38 +1,52 @@
-import { Badge } from "@cloudflare/kumo";
+/**
+ * Status pills in Vercel's deployment vocabulary: a coloured dot inside a
+ * hairline pill, always with a text label (never colour alone).
+ */
 
-const AGENT: Record<string, { label: string; variant: "neutral" | "blue" | "orange" | "green" | "red" | "purple" | "teal" }> = {
-  forking: { label: "forking", variant: "neutral" },
-  ready: { label: "ready", variant: "teal" },
-  working: { label: "working", variant: "blue" },
-  pushed: { label: "pushed", variant: "orange" },
-  reviewed: { label: "reviewed", variant: "green" },
-  failed: { label: "failed", variant: "red" },
-  retired: { label: "done", variant: "neutral" },
+const DOT: Record<string, { label: string; color: string; pulse?: boolean }> = {
+  forking: { label: "Forking", color: "#a1a1a1", pulse: true },
+  ready: { label: "Ready", color: "#a1a1a1" },
+  working: { label: "Working", color: "#f5a623", pulse: true },
+  pushed: { label: "Pushed", color: "#0070f3" },
+  reviewed: { label: "Reviewed", color: "#29bc9b" },
+  failed: { label: "Failed", color: "#ee0000" },
+  retired: { label: "Done", color: "#707070" },
+  open: { label: "Open", color: "#0070f3" },
+  decided: { label: "Decided", color: "#29bc9b" },
+  abandoned: { label: "Abandoned", color: "#707070" },
 };
 
-export function AgentStatus({ status }: { status: string }) {
-  const s = AGENT[status] ?? { label: status, variant: "neutral" as const };
+export function Pill({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <Badge variant={s.variant}>
-      {(status === "forking" || status === "working") && <span className="fy-pulse mr-1 inline-block size-1.5 rounded-full bg-current" />}
-      {s.label}
-    </Badge>
+    <span
+      className={`inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-kumo-default ${className}`}
+      style={{ background: "var(--fy-surface)", boxShadow: "0 0 0 1px var(--fy-border)" }}
+    >
+      {children}
+    </span>
   );
 }
 
-export function TaskStatusBadge({ status }: { status: string }) {
-  const v = status === "open" ? "blue" : status === "decided" ? "green" : "neutral";
-  return <Badge variant={v}>{status}</Badge>;
+function StatusPill({ status }: { status: string }) {
+  const s = DOT[status] ?? { label: status, color: "#a1a1a1" };
+  return (
+    <Pill>
+      <span className={`inline-block size-2 rounded-full ${s.pulse ? "fy-pulse" : ""}`} style={{ background: s.color }} aria-hidden />
+      {s.label}
+    </Pill>
+  );
 }
 
-/** Score 0–100 with a text value, so it reads without color. */
+export const AgentStatus = StatusPill;
+export const TaskStatusBadge = StatusPill;
+
+/** Score 0–100: a thin ink bar plus the number in mono, readable without colour. */
 export function Score({ score }: { score: number | null | undefined }) {
-  if (score === null || score === undefined) return <span className="text-xs text-kumo-subtle">no review yet</span>;
-  const tone = score >= 75 ? "bg-emerald-500" : score >= 50 ? "bg-amber-500" : "bg-red-500";
+  if (score === null || score === undefined) return <span className="text-xs text-kumo-subtle">No review yet</span>;
   return (
     <span className="inline-flex items-center gap-2" title={`Review score ${score}/100`}>
-      <span className="relative h-1.5 w-16 overflow-hidden rounded-full bg-kumo-fill">
-        <span className={`absolute inset-y-0 left-0 ${tone}`} style={{ width: `${score}%` }} />
+      <span className="relative h-1 w-16 overflow-hidden rounded-full" style={{ background: "var(--fy-border)" }}>
+        <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${score}%`, background: score < 50 ? "#ee0000" : "var(--fy-ink)" }} />
       </span>
       <span className="font-mono text-xs tabular-nums text-kumo-default">{score}</span>
     </span>
@@ -40,10 +54,10 @@ export function Score({ score }: { score: number | null | undefined }) {
 }
 
 export function LiveDot({ state }: { state: "connecting" | "live" | "offline" }) {
-  const color = state === "live" ? "bg-emerald-500" : state === "connecting" ? "bg-amber-500 fy-pulse" : "bg-red-500";
+  const color = state === "live" ? "#29bc9b" : state === "connecting" ? "#f5a623" : "#ee0000";
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-kumo-subtle" title={`Live updates: ${state}`}>
-      <span className={`inline-block size-2 rounded-full ${color}`} />
+    <span className="inline-flex items-center gap-1.5 font-mono text-xs text-kumo-subtle" title={`Live updates: ${state}`}>
+      <span className={`inline-block size-2 rounded-full ${state === "connecting" ? "fy-pulse" : ""}`} style={{ background: color }} />
       {state}
     </span>
   );

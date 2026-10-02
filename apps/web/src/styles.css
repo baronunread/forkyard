@@ -5,50 +5,171 @@
 /* `dark:` follows the app toggle, not just the OS setting. */
 @custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
 
+@theme {
+  --font-sans: "Geist Variable", Inter, system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+
 /*
- * Resolved (non light-dark) surface colors, for components that render in a
- * shadow root with their own color-scheme (@pierre/trees). Kept in step with
- * Kumo's neutral tokens.
+ * DESIGN.md (Vercel-inspired) mapped onto Kumo's theme variables, so every
+ * Kumo component picks it up. Values are resolved per mode (no light-dark())
+ * because @pierre/trees renders in a shadow root with its own color-scheme.
  */
-:root {
-  --fy-surface: #ffffff;
-  --fy-surface-2: #fafafa;
-  --fy-fg: #18181b;
-  --fy-muted: #71717a;
-  --fy-border: #e4e4e7;
-  --fy-selected: #eef2ff;
-  --fy-overlap: #b45309;
+:root,
+:root[data-mode="light"] {
+  color-scheme: light;
+  --fy-page: #fafafa; /* canvas-soft */
+  --fy-surface: #ffffff; /* canvas */
+  --fy-surface-2: #f5f5f5; /* canvas-soft-2 */
+  --fy-hover: #f2f2f2;
+  --fy-ink: #171717;
+  --fy-ink-hover: #383838;
+  --fy-on-ink: #ffffff;
+  --fy-fg: #171717;
+  --fy-body: #4d4d4d;
+  --fy-muted: #888888;
+  --fy-border: #ebebeb; /* hairline */
+  --fy-border-strong: #d4d4d4;
+  --fy-ring: #00000014;
+  --fy-selected: #f2f2f2;
+  --fy-link: #0070f3;
+  --fy-overlap: #ab570a; /* warning-deep: readable as text */
+  --fy-shadow: 0 0 0 1px var(--fy-ring), 0px 1px 1px #00000005, 0px 2px 2px #0000000a;
+  --fy-shadow-modal: 0 0 0 1px var(--fy-ring), 0px 1px 1px #00000005, 0px 8px 16px -4px #0000000a, 0px 24px 32px -8px #0000000f;
+
+  --color-kumo-canvas: var(--fy-page);
+  --color-kumo-base: var(--fy-surface);
+  --color-kumo-elevated: var(--fy-surface);
+  --color-kumo-overlay: var(--fy-surface);
+  --color-kumo-control: var(--fy-surface);
+  --color-kumo-recessed: var(--fy-surface-2);
+  --color-kumo-tint: var(--fy-hover);
+  --color-kumo-fill: #ebebeb;
+  --color-kumo-fill-hover: #e6e6e6;
+  --color-kumo-hairline: var(--fy-border);
+  --color-kumo-line: var(--fy-border-strong);
+  --color-kumo-contrast: var(--fy-ink);
+  --color-kumo-brand: var(--fy-ink);
+  --color-kumo-brand-hover: var(--fy-ink-hover);
+  --color-kumo-focus: #0070f3;
+  --color-kumo-interact: #0070f3;
+  --color-kumo-info: #0070f3;
+  --color-kumo-info-tint: #d3e5ff;
+  --color-kumo-success: #0070f3;
+  --color-kumo-success-tint: #d3e5ff;
+  --color-kumo-danger: #ee0000;
+  --color-kumo-danger-tint: #f7d4d6;
+  --color-kumo-warning: #f5a623;
+  --color-kumo-warning-tint: #ffefcf;
+  --color-kumo-banner-info: #d3e5ff;
+  --color-kumo-banner-warning: #ffefcf;
+
+  --text-color-kumo-default: var(--fy-fg);
+  --text-color-kumo-strong: #0a0a0a;
+  --text-color-kumo-subtle: var(--fy-body);
+  --text-color-kumo-inactive: #a1a1a1;
+  --text-color-kumo-placeholder: var(--fy-muted);
+  --text-color-kumo-inverse: #ffffff;
+  --text-color-kumo-brand: var(--fy-ink);
+  --text-color-kumo-link: var(--fy-link);
+  --text-color-kumo-info: #0761d1;
+  --text-color-kumo-success: #0761d1;
+  --text-color-kumo-danger: #c50000;
+  --text-color-kumo-warning: #ab570a;
 }
+
 :root[data-mode="dark"] {
-  --fy-surface: #121212;
-  --fy-surface-2: #181818;
-  --fy-fg: #f4f4f5;
-  --fy-muted: #a1a1aa;
-  --fy-border: #2a2a2e;
-  --fy-selected: #1e2235;
-  --fy-overlap: #fbbf24;
+  color-scheme: dark;
+  --fy-page: #000000;
+  --fy-surface: #0a0a0a;
+  --fy-surface-2: #111111;
+  --fy-hover: #1a1a1a;
+  --fy-ink: #ededed;
+  --fy-ink-hover: #cccccc;
+  --fy-on-ink: #0a0a0a;
+  --fy-fg: #ededed;
+  --fy-body: #a1a1a1;
+  --fy-muted: #707070;
+  --fy-border: #1f1f1f;
+  --fy-border-strong: #2e2e2e;
+  --fy-ring: #ffffff17;
+  --fy-selected: #1a1a1a;
+  --fy-link: #52a8ff;
+  --fy-overlap: #f5a623;
+  --fy-shadow: 0 0 0 1px var(--fy-ring);
+  --fy-shadow-modal: 0 0 0 1px var(--fy-ring), 0px 24px 32px -8px #00000099;
+
+  --color-kumo-fill: #1f1f1f;
+  --color-kumo-fill-hover: #2a2a2a;
+  --color-kumo-focus: #52a8ff;
+  --color-kumo-interact: #52a8ff;
+  --color-kumo-info: #52a8ff;
+  --color-kumo-info-tint: #0a1d33;
+  --color-kumo-success: #52a8ff;
+  --color-kumo-success-tint: #0a1d33;
+  --color-kumo-danger: #ff6166;
+  --color-kumo-danger-tint: #2a0b0d;
+  --color-kumo-warning: #f5a623;
+  --color-kumo-warning-tint: #2b1d05;
+  --color-kumo-banner-info: #0a1d33;
+  --color-kumo-banner-warning: #2b1d05;
+
+  --text-color-kumo-strong: #ffffff;
+  --text-color-kumo-inactive: #454545;
+  --text-color-kumo-inverse: #0a0a0a;
+  --text-color-kumo-info: #52a8ff;
+  --text-color-kumo-success: #52a8ff;
+  --text-color-kumo-danger: #ff6166;
+  --text-color-kumo-warning: #f5a623;
 }
-:root[data-mode="dark"] { color-scheme: dark; }
-:root[data-mode="light"] { color-scheme: light; }
 
 html, body, #root { height: 100%; }
 body {
   margin: 0;
-  background: var(--color-kumo-canvas);
-  color: var(--text-color-kumo-default);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--fy-page);
+  color: var(--fy-fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: "liga", "calt";
 }
+::selection { background: var(--fy-ink); color: var(--fy-on-ink); }
+code, kbd, pre, .font-mono { font-family: var(--font-mono); }
+
+/* Card: white surface held by an inset hairline + stacked small shadows (Level 2). */
+.fy-card { background: var(--fy-surface); border-radius: 8px; box-shadow: var(--fy-shadow); }
+.fy-card-hover { transition: box-shadow 150ms ease; }
+.fy-card-hover:hover { box-shadow: 0 0 0 1px var(--fy-border-strong), 0px 2px 2px #0000000a, 0px 8px 8px -8px #0000000a; }
+
+/* Technical eyebrow: caption-mono, uppercase, muted. */
+.fy-eyebrow { font-family: var(--font-mono); font-size: 12px; line-height: 16px; text-transform: uppercase; color: var(--fy-muted); letter-spacing: 0; font-weight: 400; }
+
+/* Headings: weight 600, sentence case, negative tracking. */
+.fy-h1 { font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -0.96px; }
+.fy-h2 { font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.6px; }
+.fy-h3 { font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: -0.32px; }
+
+/* Primary button: flat ink, inverts in dark mode (Kumo's primary paints a brand gradient with forced white text). */
+.fy-primary { background: var(--fy-ink) !important; color: var(--fy-on-ink) !important; --tw-ring-color: transparent !important; border-radius: 6px !important; }
+.fy-primary > span[aria-hidden="true"] { display: none; }
+/* Kumo's `!text-white` is a layered !important, which outranks any unlayered rule on the button itself; colour the children instead. */
+.fy-primary > span, .fy-primary > span * { color: var(--fy-on-ink); }
+.fy-primary:hover:not(:disabled) { background: var(--fy-ink-hover) !important; }
+/* In-app buttons use the 6px radius. */
+button { border-radius: 6px; }
 
 .fy-scroll { overflow: auto; scrollbar-gutter: stable; }
-.fy-hunk-focus { outline: 2px solid var(--color-kumo-brand, #f6821f); outline-offset: 2px; border-radius: 6px; }
+.fy-hunk-focus { outline: 2px solid var(--fy-link); outline-offset: 2px; border-radius: 6px; }
 kbd.fy-kbd {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
-  padding: 1px 5px;
+  line-height: 16px;
+  padding: 0 5px;
   border-radius: 4px;
-  border: 1px solid var(--fy-border);
-  background: var(--fy-surface-2);
+  color: var(--fy-body);
+  background: var(--fy-surface);
+  box-shadow: 0 0 0 1px var(--fy-border);
 }
 @keyframes fy-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
 .fy-pulse { animation: fy-pulse 1.4s ease-in-out infinite; }

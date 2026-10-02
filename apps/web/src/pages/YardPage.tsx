@@ -1,4 +1,4 @@
-import { Banner, Button, Empty, LayerCard, Loader } from "@cloudflare/kumo";
+import { Banner, Button, Empty, Loader } from "@cloudflare/kumo";
 import type { YardEvent } from "@forkyard/shared";
 import { GitCommit, Plus, Warning } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
@@ -46,10 +46,10 @@ export function YardPage({ yard }: { yard: string }) {
       </div>
     );
   return (
-    <div className="grid h-full min-h-0 gap-4 p-4" style={{ gridTemplateColumns: "minmax(0,1fr) 360px" }}>
+    <div className="grid h-full min-h-0 gap-6 px-6 py-5" style={{ gridTemplateColumns: "minmax(0,1fr) 360px" }}>
       <div className="fy-scroll min-h-0 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold">{s.yard.name}</h1>
+          <h1 className="fy-h1">{s.yard.name}</h1>
           <span className="font-mono text-xs text-kumo-subtle">
             {s.yard.baseRepo}@{s.yard.defaultBranch}
           </span>
@@ -57,7 +57,7 @@ export function YardPage({ yard }: { yard: string }) {
           <span className="text-xs text-kumo-subtle">
             {s.connected.agents} agent socket(s) · {s.connected.ui} viewer(s)
           </span>
-          <Button className="ml-auto" variant="primary" icon={<Plus />} onClick={() => setOpen(true)}>
+          <Button className="fy-primary ml-auto" variant="primary" icon={<Plus />} onClick={() => setOpen(true)}>
             New task
           </Button>
         </div>
@@ -71,7 +71,7 @@ export function YardPage({ yard }: { yard: string }) {
               const overlaps = s.overlaps.filter((o) => o.taskId === t.id).length;
               return (
                 <button key={t.id} className="block w-full text-left" onClick={() => navigate({ name: "task", yard, task: t.id })}>
-                  <LayerCard className="p-4 transition hover:ring-kumo-line">
+                  <div className="fy-card p-4 fy-card-hover">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">{t.title}</span>
                       <TaskStatusBadge status={t.status} />
@@ -90,7 +90,7 @@ export function YardPage({ yard }: { yard: string }) {
                         </span>
                       ))}
                     </div>
-                  </LayerCard>
+                  </div>
                 </button>
               );
             })}
@@ -98,8 +98,8 @@ export function YardPage({ yard }: { yard: string }) {
         )}
 
         {base.data && (
-          <LayerCard className="p-4">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-kumo-subtle">Base branch history</div>
+          <div className="fy-card p-4">
+            <div className="mb-2 fy-eyebrow">Base branch history</div>
             <ol className="space-y-1 text-sm">
               {base.data.commits.map((c) => (
                 <li key={c.hash} className="flex items-center gap-2">
@@ -110,11 +110,11 @@ export function YardPage({ yard }: { yard: string }) {
                 </li>
               ))}
             </ol>
-          </LayerCard>
+          </div>
         )}
       </div>
-      <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-kumo-hairline bg-kumo-base">
-        <div className="border-b border-kumo-hairline px-3 py-2 text-xs font-semibold uppercase tracking-wide text-kumo-subtle">Yard timeline</div>
+      <aside className="flex min-h-0 flex-col overflow-hidden fy-card">
+        <div className="border-b border-kumo-hairline px-3 py-2 fy-eyebrow">Yard timeline</div>
         <div className="min-h-0 flex-1">
           <Timeline events={events} agents={s.agents} />
         </div>

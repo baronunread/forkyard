@@ -1,11 +1,11 @@
-import { Badge, Empty, Loader } from "@cloudflare/kumo";
+import { Empty, Loader } from "@cloudflare/kumo";
 import { CheckCircle, GitCommit, WarningCircle, XCircle } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import type { Compare, FileCompare, TaskAgent } from "../lib/api";
 import { fetchFileCompare } from "../lib/data";
 import { AgentChip } from "./AgentChip";
 import { FileDiff, LazyMount, type DiffStyle } from "./DiffView";
-import { Score } from "./Status";
+import { Pill, Score } from "./Status";
 
 /** Everything one agent did: intent first, then review, then every changed file. */
 export function AgentView({
@@ -35,7 +35,7 @@ export function AgentView({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-lg border border-kumo-hairline bg-kumo-base p-4" aria-label="Intent">
+      <section className="fy-card p-4" aria-label="Intent">
         <div className="mb-2 flex items-center gap-2">
           <AgentChip agent={agent} size={26} showHarness />
           <span className="ml-auto">
@@ -44,12 +44,12 @@ export function AgentView({
         </div>
         {agent.intent ? (
           <>
-            <div className="text-xs font-semibold uppercase tracking-wide text-kumo-subtle">What & why</div>
+            <div className="fy-eyebrow">What & why</div>
             <h3 className="mt-0.5 text-base font-semibold">{agent.intent.summary}</h3>
             <p className="mt-1 whitespace-pre-wrap text-sm text-kumo-default">{agent.intent.why}</p>
             {agent.intent.details && <p className="mt-2 whitespace-pre-wrap text-sm text-kumo-subtle">{agent.intent.details}</p>}
             <div className="mt-2 flex items-center gap-2 text-xs text-kumo-subtle">
-              <Badge variant="neutral">via {agent.intent.source}</Badge>
+              <Pill>via {agent.intent.source}</Pill>
               {agent.intent.commit && (
                 <span className="inline-flex items-center gap-1 font-mono">
                   <GitCommit /> {agent.intent.commit.slice(0, 7)}
@@ -63,9 +63,9 @@ export function AgentView({
       </section>
 
       {agent.review && (
-        <section className="rounded-lg border border-kumo-hairline bg-kumo-base p-4" aria-label="Review">
+        <section className="fy-card p-4" aria-label="Review">
           <div className="mb-2 flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-kumo-subtle">Review</span>
+            <span className="fy-eyebrow">Review</span>
             <span className="text-xs text-kumo-subtle">
               {agent.review.reviewer} · {agent.review.commit.slice(0, 7)}
             </span>

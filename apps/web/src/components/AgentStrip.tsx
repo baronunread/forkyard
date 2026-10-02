@@ -1,6 +1,6 @@
-import { ArrowSquareOut, Warning } from "@phosphor-icons/react";
+import { ArrowUpRight, Warning } from "@phosphor-icons/react";
 import type { Compare, TaskDetail } from "../lib/api";
-import { AgentChip } from "./AgentChip";
+import { AgentBadge } from "./AgentChip";
 import { AgentStatus, Score } from "./Status";
 
 /** One card per fork: who, status, intent first, score, size, preview. */
@@ -16,7 +16,7 @@ export function AgentStrip({
   onSelect: (id: string) => void;
 }) {
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Agent forks">
+    <div className="flex gap-3 overflow-x-auto p-px pb-1" role="tablist" aria-label="Agent forks">
       {detail.agents.map((a, i) => {
         const c = compare?.agents.find((x) => x.agent.id === a.id);
         const isSel = a.id === selected;
@@ -27,56 +27,55 @@ export function AgentStrip({
             role="tab"
             aria-selected={isSel}
             onClick={() => onSelect(a.id)}
-            className={`flex w-72 shrink-0 flex-col gap-1.5 rounded-lg border bg-kumo-base p-3 text-left transition ${isSel ? "shadow-sm" : "border-kumo-hairline hover:border-kumo-line"}`}
-            style={isSel ? { borderColor: a.color, boxShadow: `0 0 0 1px ${a.color}` } : undefined}
+            className="fy-card fy-card-hover flex w-[300px] shrink-0 flex-col gap-3 p-4 text-left"
+            style={isSel ? { boxShadow: "0 0 0 2px var(--fy-ink)" } : undefined}
           >
-            <div className="flex items-center gap-2">
-              <AgentChip agent={a} size={24} />
-              <span className="ml-auto flex items-center gap-1.5">
+            <div className="flex items-center gap-2.5">
+              <AgentBadge agent={a} size={28} />
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium leading-5">{a.name}</div>
+                <div className="truncate font-mono text-xs text-kumo-subtle">{a.harness}</div>
+              </div>
+              <span className="ml-auto flex items-center gap-2">
                 {i < 9 && <kbd className="fy-kbd">{i + 1}</kbd>}
                 <AgentStatus status={a.status} />
               </span>
             </div>
-            <div className="text-xs text-kumo-subtle">{a.harness}</div>
-            <div className="min-h-[2.5rem]">
+            <div className="min-h-[44px]">
               {a.intent ? (
                 <>
-                  <div className="line-clamp-1 text-sm font-semibold">{a.intent.summary}</div>
-                  <div className="line-clamp-2 text-xs text-kumo-subtle">{a.intent.why}</div>
+                  <div className="line-clamp-1 text-sm font-medium">{a.intent.summary}</div>
+                  <div className="mt-0.5 line-clamp-2 text-[13px] leading-[18px] text-kumo-subtle">{a.intent.why}</div>
                 </>
               ) : (
-                <div className="text-xs italic text-kumo-subtle">no intent recorded yet</div>
+                <div className="text-[13px] text-kumo-inactive">No intent recorded yet.</div>
               )}
             </div>
-            <div className="flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center justify-between gap-2" style={{ borderTop: "1px solid var(--fy-border)", paddingTop: 12 }}>
               <Score score={a.review?.score} />
-              <span className="font-mono tabular-nums text-kumo-subtle">
-                {c ? `${c.files.length} files ` : ""}
-                {c && (
-                  <>
-                    <span className="text-emerald-600 dark:text-emerald-400">+{c.additions}</span>{" "}
-                    <span className="text-red-600 dark:text-red-400">−{c.deletions}</span>
-                  </>
-                )}
-              </span>
+              {c && (
+                <span className="font-mono text-xs tabular-nums text-kumo-subtle">
+                  {c.files.length} files <span style={{ color: "#29bc9b" }}>+{c.additions}</span> <span style={{ color: "#ee0000" }}>−{c.deletions}</span>
+                </span>
+              )}
             </div>
-            <div className="flex items-center gap-2 text-xs text-kumo-subtle">
+            <div className="flex items-center gap-3 font-mono text-xs text-kumo-subtle">
               {overlaps > 0 && (
-                <span className="inline-flex items-center gap-1 font-medium" style={{ color: "var(--fy-overlap)" }}>
+                <span className="inline-flex items-center gap-1 font-sans font-medium" style={{ color: "var(--fy-overlap)" }}>
                   <Warning weight="fill" /> {overlaps} overlap{overlaps > 1 ? "s" : ""}
                 </span>
               )}
-              {a.headCommit && <span className="font-mono">{a.headCommit.slice(0, 7)}</span>}
+              {a.headCommit && <span>{a.headCommit.slice(0, 7)}</span>}
               {a.forkMs !== null && <span title="Fork latency">fork {Math.round(a.forkMs)}ms</span>}
               {a.previewUrl && (
                 <a
-                  className="ml-auto inline-flex items-center gap-0.5 text-kumo-link hover:underline"
+                  className="ml-auto inline-flex items-center gap-0.5 font-sans text-kumo-link hover:underline"
                   href={a.previewUrl}
                   target="_blank"
                   rel="noreferrer"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  preview <ArrowSquareOut />
+                  Preview <ArrowUpRight />
                 </a>
               )}
             </div>

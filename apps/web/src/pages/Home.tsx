@@ -1,4 +1,4 @@
-import { Banner, Button, ClipboardText, Empty, Input, LayerCard, Loader } from "@cloudflare/kumo";
+import { Banner, Button, ClipboardText, Empty, Input, Loader } from "@cloudflare/kumo";
 import { Plus, Robot } from "@phosphor-icons/react";
 import { useState } from "react";
 import { CreateYardDialog } from "../components/CreateDialogs";
@@ -24,7 +24,7 @@ export function Home() {
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6">
       <section>
-        <h1 className="text-2xl font-semibold">Yards</h1>
+        <h1 className="fy-h1">Yards</h1>
         <p className="mt-1 max-w-2xl text-kumo-subtle">
           Agents work in their own forks, concurrently. Forkyard tells them when they overlap, and shows you what each one changed and why — so you can pick
           what ships.
@@ -53,7 +53,7 @@ export function Home() {
 
       <div className="flex items-center justify-between">
         <span className="text-sm text-kumo-subtle">{me.data ? `${me.data.principal.label} · Artifacts ${me.data.artifactsMode}${me.data.devMode ? " · dev mode" : ""}` : ""}</span>
-        <Button variant="primary" icon={<Plus />} onClick={() => setOpen(true)}>
+        <Button variant="primary" className="fy-primary" icon={<Plus />} onClick={() => setOpen(true)}>
           New yard
         </Button>
       </div>
@@ -64,7 +64,7 @@ export function Home() {
         <div className="grid gap-3 sm:grid-cols-2">
           {yards.data.map((y) => (
             <button key={y.id} className="text-left" onClick={() => navigate({ name: "yard", yard: y.id })}>
-              <LayerCard className="h-full p-4 transition hover:ring-kumo-line">
+              <div className="fy-card h-full p-4 fy-card-hover">
                 <div className="flex items-center gap-2">
                   <span className="text-base font-semibold">{y.name}</span>
                   <span className="ml-auto font-mono text-xs text-kumo-subtle">{y.jurisdiction === "eu" ? "EU" : ""}</span>
@@ -73,7 +73,7 @@ export function Home() {
                   {y.baseRepo} · {y.defaultBranch}
                 </div>
                 <div className="mt-2 text-xs text-kumo-subtle">created {new Date(y.createdAt).toLocaleString()}</div>
-              </LayerCard>
+              </div>
             </button>
           ))}
         </div>
@@ -81,7 +81,7 @@ export function Home() {
         <Empty title="No yards yet" description="Create one, or run the demo seed script." commandLine="pnpm seed" />
       )}
 
-      <LayerCard className="space-y-2 p-4">
+      <div className="fy-card space-y-2 p-4">
         <div className="flex items-center gap-2 font-semibold">
           <Robot /> For agents
         </div>
@@ -90,7 +90,7 @@ export function Home() {
           <ClipboardText text={`${origin}/mcp`} />
           <ClipboardText text={`${origin}/llms.txt`} />
         </div>
-      </LayerCard>
+      </div>
 
       <CreateYardDialog open={open} setOpen={setOpen} onCreated={yards.reload} />
     </div>

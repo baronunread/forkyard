@@ -1,6 +1,6 @@
-import { Banner, Button, Empty, Loader, Switch, Tabs } from "@cloudflare/kumo";
+import { Banner, Empty, Loader, Tabs } from "@cloudflare/kumo";
 import type { YardEvent } from "@forkyard/shared";
-import { CaretDown, CaretUp, Warning } from "@phosphor-icons/react";
+import { Warning } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentStrip } from "../components/AgentStrip";
 import { AgentView } from "../components/AgentView";
@@ -145,9 +145,9 @@ export function TaskPage({ yard, task, agentParam, fileParam }: { yard: string; 
 
   const activeOverlaps = d.overlaps.filter((o) => o.active);
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-3">
+    <div className="flex h-full min-h-0 flex-col gap-4 px-6 py-5">
       <header className="flex flex-wrap items-center gap-3">
-        <h1 className="text-lg font-semibold">{d.task.title}</h1>
+        <h1 className="fy-h1">{d.task.title}</h1>
         <TaskStatusBadge status={d.task.status} />
         <span className="font-mono text-xs text-kumo-subtle" title="Base commit this task forked from">
           base {d.task.baseCommit.slice(0, 7)}
@@ -159,21 +159,29 @@ export function TaskPage({ yard, task, agentParam, fileParam }: { yard: string; 
         )}
         <span className="ml-auto flex items-center gap-3">
           <LiveDot state={live} />
-          <Switch size="sm" label="Split" checked={split} onCheckedChange={setSplit} />
-          <Switch size="sm" label="Wrap" checked={wrap} onCheckedChange={setWrap} />
-          <Button size="sm" variant="ghost" onClick={() => setShowTimeline(!showTimeline)} icon={showTimeline ? <CaretUp /> : <CaretDown />}>
-            Timeline
-          </Button>
+          <Tabs
+            size="sm"
+            variant="segmented"
+            value={split ? "split" : "unified"}
+            onValueChange={(v) => setSplit(v === "split")}
+            tabs={[
+              { value: "split", label: "Split" },
+              { value: "unified", label: "Unified" },
+            ]}
+          />
+          <ToggleButton pressed={wrap} onClick={() => setWrap(!wrap)} label="Wrap" />
+          <ToggleButton pressed={showTimeline} onClick={() => setShowTimeline(!showTimeline)} label="Timeline" />
         </span>
       </header>
-      {d.task.brief && <p className="-mt-1 line-clamp-2 max-w-4xl text-sm text-kumo-subtle">{d.task.brief}</p>}
+      {d.task.brief && <p className="-mt-2 line-clamp-2 max-w-4xl text-sm text-kumo-subtle">{d.task.brief}</p>}
 
       <AgentStrip detail={d} compare={compare.data} selected={selectedAgent?.id ?? null} onSelect={(id) => go({ agent: id })} />
 
-      <div className="grid min-h-0 flex-1 gap-3" style={{ gridTemplateColumns: showTimeline ? "260px minmax(0,1fr) 320px" : "260px minmax(0,1fr)" }}>
-        <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-kumo-hairline bg-kumo-base">
-          <div className="border-b border-kumo-hairline px-3 py-2 text-xs font-semibold uppercase tracking-wide text-kumo-subtle">
-            Files touched · {files.length}
+      <div className="grid min-h-0 flex-1 gap-4" style={{ gridTemplateColumns: showTimeline ? "264px minmax(0,1fr) 320px" : "264px minmax(0,1fr)" }}>
+        <aside className="flex min-h-0 flex-col overflow-hidden fy-card">
+          <div className="fy-eyebrow flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid var(--fy-border)" }}>
+            <span>Files touched</span>
+            <span>{files.length}</span>
           </div>
           <div className="min-h-0 flex-1">
             {files.length ? (
@@ -192,8 +200,8 @@ export function TaskPage({ yard, task, agentParam, fileParam }: { yard: string; 
           </div>
         </aside>
 
-        <main ref={mainRef} className="fy-scroll min-h-0 rounded-lg">
-          <div className="sticky top-0 z-10 mb-3 bg-kumo-canvas pb-2">
+        <main ref={mainRef} className="fy-scroll min-h-0 px-px">
+          <div className="sticky top-0 z-10 mb-4 pb-1" style={{ background: "var(--fy-page)" }}>
             <Tabs
               variant="underline"
               value={view}
@@ -226,8 +234,8 @@ export function TaskPage({ yard, task, agentParam, fileParam }: { yard: string; 
         </main>
 
         {showTimeline && (
-          <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-kumo-hairline bg-kumo-base">
-            <div className="border-b border-kumo-hairline px-3 py-2 text-xs font-semibold uppercase tracking-wide text-kumo-subtle">Timeline</div>
+          <aside className="flex min-h-0 flex-col overflow-hidden fy-card">
+            <div className="fy-eyebrow px-4 py-3" style={{ borderBottom: "1px solid var(--fy-border)" }}>Timeline</div>
             <div className="min-h-0 flex-1">
               <Timeline events={events} agents={agents} now={now} />
             </div>
@@ -243,4 +251,22 @@ function mergeEvents(a: YardEvent[], b: YardEvent[]): YardEvent[] {
   for (const e of a) m.set(e.seq, e);
   for (const e of b) m.set(e.seq, e);
   return [...m.values()].sort((x, y) => x.seq - y.seq);
+}
+
+/** Hairline toggle in the in-app button scale; filled ink when on. */
+function ToggleButton({ pressed, onClick, label }: { pressed: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      aria-pressed={pressed}
+      onClick={onClick}
+      className="h-7 rounded-md px-2.5 text-[13px] font-medium"
+      style={
+        pressed
+          ? { background: "var(--fy-ink)", color: "var(--fy-on-ink)" }
+          : { background: "var(--fy-surface)", color: "var(--fy-body)", boxShadow: "0 0 0 1px var(--fy-border)" }
+      }
+    >
+      {label}
+    </button>
+  );
 }

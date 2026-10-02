@@ -1,10 +1,10 @@
 /**
  * Agent identity: stable colors, initials and fork names.
  *
- * Colors are mid-lightness so they read as markers on both the light and dark
- * Kumo canvases (contrast ≥ 3:1 against white and against #111), and every use
- * in the UI pairs them with the agent's initials, so color is never the only
- * signal.
+ * Colors come from the Geist accent scale and read as markers on both the
+ * light and dark canvases; each carries a text color for the initials drawn
+ * on top. Every use in the UI pairs the color with the agent's initials and
+ * name, so color is never the only signal.
  */
 
 export interface AgentColor {
@@ -16,16 +16,17 @@ export interface AgentColor {
 }
 
 export const AGENT_COLORS: readonly AgentColor[] = [
-  { name: "blue", hex: "#3b82f6", on: "#000000" },
-  { name: "orange", hex: "#f97316", on: "#000000" },
-  { name: "violet", hex: "#a855f7", on: "#000000" },
-  { name: "teal", hex: "#14b8a6", on: "#000000" },
-  { name: "pink", hex: "#ec4899", on: "#000000" },
-  { name: "lime", hex: "#84cc16", on: "#000000" },
-  { name: "amber", hex: "#eab308", on: "#000000" },
-  { name: "cyan", hex: "#06b6d4", on: "#000000" },
-  { name: "red", hex: "#ef4444", on: "#000000" },
-  { name: "indigo", hex: "#818cf8", on: "#000000" },
+  // Geist scale accents (see DESIGN.md → Forkyard application notes).
+  { name: "blue", hex: "#0070f3", on: "#ffffff" },
+  { name: "violet", hex: "#7928ca", on: "#ffffff" },
+  { name: "pink", hex: "#ff0080", on: "#ffffff" },
+  { name: "amber", hex: "#f5a623", on: "#000000" },
+  { name: "teal", hex: "#29bc9b", on: "#000000" },
+  { name: "red", hex: "#ee0000", on: "#ffffff" },
+  { name: "green", hex: "#45a557", on: "#000000" },
+  { name: "purple", hex: "#8e4ec6", on: "#ffffff" },
+  { name: "cyan", hex: "#50e3c2", on: "#000000" },
+  { name: "slate", hex: "#6e7c8c", on: "#ffffff" },
 ];
 
 /** Pick the first color not used by `taken`, falling back to a stable hash of the name. */
