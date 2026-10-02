@@ -1,6 +1,5 @@
 import { AGENTS_MD_TEMPLATE, llmsTxt, MCP_TOOLS } from "@forkyard/shared";
-import { Hono } from "hono";
-import { cors } from "hono/cors";
+import { Hono, type MiddlewareHandler } from "hono";
 import { api, type HonoEnv } from "./api";
 import { assertYard, authenticate } from "./auth";
 import { getYard } from "./db";
@@ -22,7 +21,24 @@ app.onError((err, c) => {
   return c.json({ error: e.message }, e.status);
 });
 
-app.use("/api/*", cors({ origin: (o) => o, allowHeaders: ["Authorization", "Content-Type"], credentials: true }));
+// The UI is same-origin and agents are not browsers, so there is no CORS. Browsers always
+// send Origin on WebSocket upgrades and cross-site POSTs: refuse any that is not this host,
+// so a Cloudflare Access cookie can't be ridden by another site (CSRF / socket hijacking).
+const sameOrigin: MiddlewareHandler<HonoEnv> = async (c, next) => {
+  const origin = c.req.header("Origin");
+  if (origin && origin !== "null") {
+    let host: string | null = null;
+    try {
+      host = new URL(origin).host;
+    } catch {
+      /* malformed */
+    }
+    if (host !== new URL(c.req.url).host && host !== c.req.header("Host")) return c.json({ error: "cross-origin requests are not allowed" }, 403);
+  }
+  await next();
+};
+app.use("/api/*", sameOrigin);
+app.use("/mcp", sameOrigin);
 
 // Live updates: UI and agents subscribe to a yard over a hibernatable WebSocket.
 app.get("/api/yards/:yard/ws", async (c) => {
