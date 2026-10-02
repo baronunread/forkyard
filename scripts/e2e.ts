@@ -103,6 +103,8 @@ async function main() {
   const sha = await g.commitAndPush("notes");
   check(/^[0-9a-f]{40}$/.test(sha), "plain git push with the scoped token");
 
+  await oauthChecks(t2.task.id);
+
   await api(`/yards/${yardId}/tasks/${t2.task.id}/abandon`, { body: { reason: "e2e done" } });
 
   if (arg("cleanup") === "true") {
@@ -119,6 +121,80 @@ async function main() {
 
   console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
   process.exit(failures ? 1 : 0);
+}
+
+/** MCP OAuth as a real client would do it: register, PKCE, sign in, consent, token, call. */
+async function oauthChecks(probeTask: string) {
+  const providers = await (await fetch(`${BASE}/auth/providers`)).json() as { dev: boolean };
+  if (!providers.dev) {
+    console.log("- skipping OAuth flow (needs dev sign-in)");
+    return;
+  }
+  const challenge = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  check(challenge.status === 401 && (challenge.headers.get("WWW-Authenticate") ?? "").includes("resource_metadata="), "unauthenticated /mcp answers 401 with resource metadata");
+  const asMeta = (await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json()) as { registration_endpoint: string; token_endpoint: string; authorization_endpoint: string };
+  const redirect = "http://127.0.0.1:9/callback";
+  const reg = (await (
+    await fetch(asMeta.registration_endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_name: "e2e agent", redirect_uris: [redirect], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"] }),
+    })
+  ).json()) as { client_id: string };
+  check(!!reg.client_id, "dynamic client registration");
+
+  // A person signs in (dev sign-in stands in for GitHub/Google).
+  const jar = new Map<string, string>();
+  const keep = (res: Response) => {
+    for (const c of res.headers.getSetCookie()) {
+      const [kv] = c.split(";");
+      const i = kv!.indexOf("=");
+      jar.set(kv!.slice(0, i), kv!.slice(i + 1));
+    }
+  };
+  const cookies = () => [...jar].filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join("; ");
+  keep(await fetch(`${BASE}/auth/dev`, { method: "POST", redirect: "manual", headers: { Origin: BASE } }));
+  const me = (await (await fetch(`${BASE}/api/me`, { headers: { Cookie: cookies() } })).json()) as { user: { name: string } | null };
+  check(me.user?.name === "Dev User", "a person is signed in with a session cookie");
+
+  const token = async (seat: string) => {
+    const verifier = crypto.randomUUID() + crypto.randomUUID();
+    const challengeB64 = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))).toString("base64url");
+    const auth = new URL(asMeta.authorization_endpoint);
+    for (const [k, v] of Object.entries({ response_type: "code", client_id: reg.client_id, redirect_uri: redirect, scope: "mcp", state: "s1", code_challenge: challengeB64, code_challenge_method: "S256", resource: `${BASE}/mcp` }))
+      auth.searchParams.set(k, v);
+    const page = await fetch(auth, { headers: { Cookie: cookies() }, redirect: "manual" });
+    keep(page);
+    const html = await page.text();
+    const handle = /name="handle" value="([^"]+)"/.exec(html)?.[1];
+    if (!handle) throw new Error(`no consent page: ${page.status} ${html.slice(0, 200)}`);
+    const form = new URLSearchParams({ handle, decision: "approve", seat });
+    const done = await fetch(auth.origin + auth.pathname, {
+      method: "POST",
+      headers: { Cookie: cookies(), "Content-Type": "application/x-www-form-urlencoded", Origin: BASE },
+      body: form,
+      redirect: "manual",
+    });
+    const code = new URL(done.headers.get("Location") ?? "http://x/").searchParams.get("code");
+    if (!code) throw new Error(`no code: ${done.status} ${await done.text()}`);
+    const tok = (await (
+      await fetch(asMeta.token_endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: redirect, client_id: reg.client_id, code_verifier: verifier, resource: `${BASE}/mcp` }),
+      })
+    ).json()) as { access_token: string };
+    return tok.access_token;
+  };
+
+  const asMe = new Mcp(await token("me"));
+  const yards = await asMe.call<{ yards: { id: string }[] }>("yard_list");
+  check(yards.data.yards.some((y) => y.id === yardId), "OAuth token acting as the person lists their yards");
+  const seatTok = await token(`${yardId}/${probeTask}/eve`);
+  const ws = await new Mcp(seatTok).call<{ agent: { id: string } }>("workspace_get");
+  check(ws.data.agent.id === "eve", "OAuth token bound to an agent seat gets that seat's workspace");
+  const denied = await new Mcp(seatTok).call("task_create", { yardId, title: "x", agents: [{ name: "x" }] }).then(() => "ok", (e) => String(e));
+  check(denied.includes("403"), "an agent-seat token cannot create tasks");
 }
 
 main().catch((e) => {

@@ -19,7 +19,7 @@ import {
   type Yard,
 } from "@forkyard/shared";
 import { disposeRepo, errorCode, getArtifacts } from "./artifacts";
-import { actingAgent, assertAdmin, assertCanDecide, assertTask, assertYard, AuthError, type Principal } from "./auth";
+import { actingAgent, assertAdmin, assertCanDecide, assertMemberOrAdmin, assertPerson, assertTask, assertYard, AuthError, isMember, type Principal } from "./auth";
 import {
   getAgent,
   getDecision,
@@ -92,11 +92,16 @@ export function previewUrl(yard: Yard, agent: Pick<Agent, "id" | "taskId" | "for
 
 export async function yardsList(env: Env, p: Principal): Promise<Yard[]> {
   const all = await listYards(env.DB);
-  return p.kind === "agent" ? all.filter((y) => y.id === p.yardId) : all;
+  if (p.kind === "agent") return all.filter((y) => y.id === p.yardId);
+  if (p.kind === "user") {
+    const visible = await Promise.all(all.map((y) => isMember(env, p.userId, y.id)));
+    return all.filter((_, i) => visible[i]);
+  }
+  return all;
 }
 
 export async function yardCreate(env: Env, p: Principal, input: CreateYardInput): Promise<Yard> {
-  assertAdmin(p);
+  assertPerson(p);
   if (await getYard(env.DB, input.id)) throw new ServiceError(409, `yard ${input.id} already exists`);
   const artifacts = getArtifacts(env, input.jurisdiction);
   const name = baseRepoName(input.id);
@@ -147,19 +152,21 @@ export async function yardCreate(env: Env, p: Principal, input: CreateYardInput)
   )
     .bind(yard.id, yard.name, yard.baseRepo, yard.defaultBranch, yard.jurisdiction, yard.previewUrlTemplate, JSON.stringify(yard.budgets), yard.createdAt)
     .run();
+  if (p.kind === "user")
+    await env.DB.prepare("INSERT INTO yard_members (yard_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(yard.id, p.userId, now()).run();
   await yardStub(env, yard).init(yard);
   return yard;
 }
 
 export async function yardStatus(env: Env, p: Principal, yardId: string) {
-  assertYard(p, yardId);
+  await assertYard(env, p, yardId);
   const yard = await mustYard(env, yardId);
   const status = await yardStub(env, yard).status();
   return { ...status, agents: status.agents.map((a) => ({ ...a, previewUrl: previewUrl(yard, a) })) };
 }
 
 export async function yardBaseLog(env: Env, p: Principal, yardId: string, limit = 20) {
-  assertYard(p, yardId);
+  await assertYard(env, p, yardId);
   const yard = await mustYard(env, yardId);
   const repo = await getArtifacts(env, yard.jurisdiction).get(yard.baseRepo);
   try {
@@ -174,7 +181,7 @@ export async function yardBaseLog(env: Env, p: Principal, yardId: string, limit 
 // ── tasks ──────────────────────────────────────────────────────────────────
 
 export async function taskCreate(env: Env, p: Principal, yardId: string, input: CreateTaskInput) {
-  assertAdmin(p);
+  await assertMemberOrAdmin(env, p, yardId);
   const yard = await mustYard(env, yardId);
   if (input.id && (await getTask(env.DB, yardId, input.id))) throw new ServiceError(409, `task ${input.id} already exists`);
   const res = await yardStub(env, yard).createTask(input, p.label);
@@ -182,20 +189,20 @@ export async function taskCreate(env: Env, p: Principal, yardId: string, input: 
 }
 
 export async function taskList(env: Env, p: Principal, yardId: string): Promise<Task[]> {
-  assertYard(p, yardId);
+  await assertYard(env, p, yardId);
   const { results } = await env.DB.prepare("SELECT * FROM tasks WHERE yard_id = ? ORDER BY created_at DESC").bind(yardId).all();
   const tasks = await Promise.all(results.map((r) => getTask(env.DB, yardId, String(r.id))));
   return tasks.filter((t): t is Task => !!t && (p.kind !== "agent" || t.id === p.taskId));
 }
 
 export async function waitForAgent(env: Env, p: Principal, yardId: string, taskId: string, agentId: string): Promise<Agent> {
-  assertTask(p, yardId, taskId);
+  await assertTask(env, p, yardId, taskId);
   const yard = await mustYard(env, yardId);
   return yardStub(env, yard).waitForAgent(taskId, agentId);
 }
 
 export async function taskGet(env: Env, p: Principal, yardId: string, taskId: string) {
-  assertTask(p, yardId, taskId);
+  await assertTask(env, p, yardId, taskId);
   const yard = await mustYard(env, yardId);
   const task = await mustTask(env, yardId, taskId);
   const [agents, intents, reviews, decision, status] = await Promise.all([
@@ -221,7 +228,7 @@ export async function taskGet(env: Env, p: Principal, yardId: string, taskId: st
 }
 
 export async function taskAbandon(env: Env, p: Principal, yardId: string, taskId: string, reason: string) {
-  assertAdmin(p);
+  await assertMemberOrAdmin(env, p, yardId);
   const yard = await mustYard(env, yardId);
   const task = await mustTask(env, yardId, taskId);
   if (task.status !== "open") throw new ServiceError(409, `task is ${task.status}`);
@@ -232,25 +239,25 @@ export async function taskAbandon(env: Env, p: Principal, yardId: string, taskId
 // ── agent workspace, claims, intents ───────────────────────────────────────
 
 export async function workspaceGet(env: Env, p: Principal, yardId: string, taskId: string, agentId?: string) {
-  const id = actingAgent(p, yardId, taskId, agentId);
+  const id = await actingAgent(env, p, yardId, taskId, agentId);
   const yard = await mustYard(env, yardId);
   return yardStub(env, yard).workspace(taskId, id);
 }
 
 export async function claimPaths(env: Env, p: Principal, yardId: string, taskId: string, input: ClaimInput & { agentId?: string }) {
-  const id = actingAgent(p, yardId, taskId, input.agentId);
+  const id = await actingAgent(env, p, yardId, taskId, input.agentId);
   const yard = await mustYard(env, yardId);
   return yardStub(env, yard).claim(taskId, id, input.paths);
 }
 
 export async function releasePaths(env: Env, p: Principal, yardId: string, taskId: string, input: { paths?: string[]; agentId?: string }) {
-  const id = actingAgent(p, yardId, taskId, input.agentId);
+  const id = await actingAgent(env, p, yardId, taskId, input.agentId);
   const yard = await mustYard(env, yardId);
   return yardStub(env, yard).release(taskId, id, input.paths ?? null);
 }
 
 export async function intentRecord(env: Env, p: Principal, yardId: string, taskId: string, input: IntentInput & { agentId?: string }) {
-  const id = actingAgent(p, yardId, taskId, input.agentId);
+  const id = await actingAgent(env, p, yardId, taskId, input.agentId);
   const yard = await mustYard(env, yardId);
   const task = await mustTask(env, yardId, taskId);
   if (task.status !== "open") throw new ServiceError(409, `task is ${task.status}`);
@@ -258,7 +265,7 @@ export async function intentRecord(env: Env, p: Principal, yardId: string, taskI
 }
 
 export async function intentsList(env: Env, p: Principal, yardId: string, taskId: string, agentId?: string): Promise<Intent[]> {
-  assertTask(p, yardId, taskId);
+  await assertTask(env, p, yardId, taskId);
   return listIntents(env.DB, yardId, taskId, agentId);
 }
 
@@ -272,7 +279,7 @@ export async function eventsSince(
   limit: number,
   filter: { taskId?: string; agentId?: string; types?: string[] },
 ) {
-  assertYard(p, yardId);
+  await assertYard(env, p, yardId);
   const yard = await mustYard(env, yardId);
   // Agents only see their own task (and yard-level events).
   const f = p.kind === "agent" ? { ...filter, taskId: p.taskId } : filter;
@@ -282,7 +289,7 @@ export async function eventsSince(
 // ── diffs and comparison ───────────────────────────────────────────────────
 
 export async function agentDiff(env: Env, p: Principal, yardId: string, taskId: string, agentId: string): Promise<ForkDiff> {
-  assertTask(p, yardId, taskId);
+  await assertTask(env, p, yardId, taskId);
   const yard = await mustYard(env, yardId);
   const task = await mustTask(env, yardId, taskId);
   const agent = await getAgent(env.DB, yardId, taskId, agentId);
@@ -316,7 +323,7 @@ export interface CompareSummary {
 }
 
 export async function compareForks(env: Env, p: Principal, yardId: string, taskId: string): Promise<CompareSummary> {
-  assertTask(p, yardId, taskId);
+  await assertTask(env, p, yardId, taskId);
   const yard = await mustYard(env, yardId);
   const task = await mustTask(env, yardId, taskId);
   const [agents, intents, reviews, status] = await Promise.all([
@@ -354,7 +361,7 @@ export async function compareForks(env: Env, p: Principal, yardId: string, taskI
 }
 
 export async function compareFile(env: Env, p: Principal, yardId: string, taskId: string, path: string, agentIds?: string[]): Promise<FileCompare> {
-  assertTask(p, yardId, taskId);
+  await assertTask(env, p, yardId, taskId);
   const yard = await mustYard(env, yardId);
   const task = await mustTask(env, yardId, taskId);
   const agents = (await listAgents(env.DB, yardId, taskId)).filter((a) => !agentIds?.length || agentIds.includes(a.id));
@@ -390,21 +397,21 @@ export async function compareFile(env: Env, p: Principal, yardId: string, taskId
 }
 
 export async function reviewGet(env: Env, p: Principal, yardId: string, taskId: string, agentId: string): Promise<Review[]> {
-  assertTask(p, yardId, taskId);
+  await assertTask(env, p, yardId, taskId);
   return listReviews(env.DB, yardId, taskId, agentId);
 }
 
 // ── decisions ──────────────────────────────────────────────────────────────
 
 export async function decidePreview(env: Env, p: Principal, yardId: string, taskId: string, input: DecideInput) {
-  assertTask(p, yardId, taskId);
+  await assertTask(env, p, yardId, taskId);
   const yard = await mustYard(env, yardId);
   const task = await mustTask(env, yardId, taskId);
   return previewDecision(env, yard, task, input);
 }
 
 export async function decide(env: Env, p: Principal, yardId: string, taskId: string, input: DecideInput) {
-  assertCanDecide(p, yardId, taskId);
+  await assertCanDecide(env, p, yardId, taskId);
   const yard = await mustYard(env, yardId);
   const task = await mustTask(env, yardId, taskId);
   const res = await applyDecision(env, yard, task, input, p.label);
@@ -415,7 +422,7 @@ export async function decide(env: Env, p: Principal, yardId: string, taskId: str
 // ── benchmarks ─────────────────────────────────────────────────────────────
 
 export async function benchFork(env: Env, p: Principal, yardId: string, concurrency: number, label?: string) {
-  assertAdmin(p);
+  await assertMemberOrAdmin(env, p, yardId);
   const yard = await mustYard(env, yardId);
   const n = Math.max(1, Math.min(100, Math.floor(concurrency)));
   const artifacts = getArtifacts(env, yard.jurisdiction);
@@ -460,7 +467,7 @@ export async function benchRecord(
   p: Principal,
   input: { kind: string; label: string; mode: string; concurrency: number; stats: Record<string, unknown> },
 ) {
-  assertAdmin(p);
+  assertPerson(p);
   const id = newId("bench_");
   await env.DB.prepare("INSERT INTO bench_runs (id, kind, label, mode, concurrency, stats, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .bind(id, input.kind, input.label, input.mode, input.concurrency, JSON.stringify(input.stats), now())
@@ -482,13 +489,13 @@ export async function benchList(env: Env) {
 }
 
 export async function latency(env: Env, p: Principal, yardId: string) {
-  assertYard(p, yardId);
+  await assertYard(env, p, yardId);
   const yard = await mustYard(env, yardId);
   return yardStub(env, yard).latencyStats();
 }
 
 export async function startK2Poll(env: Env, p: Principal, yardId: string, seconds: number) {
-  assertAdmin(p);
+  await assertMemberOrAdmin(env, p, yardId);
   const yard = await mustYard(env, yardId);
   return yardStub(env, yard).startK2Poll(seconds);
 }

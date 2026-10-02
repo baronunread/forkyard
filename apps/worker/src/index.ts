@@ -1,10 +1,12 @@
 import { AGENTS_MD_TEMPLATE, llmsTxt, MCP_TOOLS } from "@forkyard/shared";
 import { Hono, type MiddlewareHandler } from "hono";
 import { api, type HonoEnv } from "./api";
-import { assertYard, authenticate } from "./auth";
+import { assertYard, authenticate, principalFromProps, type GrantProps } from "./auth";
 import { getYard } from "./db";
 import { num, type Env } from "./env";
 import { handleMcp } from "./mcp";
+import { authorize, oauthProvider } from "./oauth";
+import { origin, social } from "./social";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
 import { cleanupForks, toServiceError } from "./service";
 import { yardStub } from "./yard";
@@ -23,7 +25,7 @@ app.onError((err, c) => {
 
 // The UI is same-origin and agents are not browsers, so there is no CORS. Browsers always
 // send Origin on WebSocket upgrades and cross-site POSTs: refuse any that is not this host,
-// so a Cloudflare Access cookie can't be ridden by another site (CSRF / socket hijacking).
+// so the session cookie can't be ridden by another site (CSRF / socket hijacking).
 const sameOrigin: MiddlewareHandler<HonoEnv> = async (c, next) => {
   const origin = c.req.header("Origin");
   if (origin && origin !== "null") {
@@ -38,14 +40,19 @@ const sameOrigin: MiddlewareHandler<HonoEnv> = async (c, next) => {
   await next();
 };
 app.use("/api/*", sameOrigin);
+app.use("/auth/*", sameOrigin);
 app.use("/mcp", sameOrigin);
+
+// People: GitHub / Google sign-in. Agents: the OAuth consent screen.
+app.route("/auth", social);
+app.route("/", authorize);
 
 // Live updates: UI and agents subscribe to a yard over a hibernatable WebSocket.
 app.get("/api/yards/:yard/ws", async (c) => {
   if (c.req.header("Upgrade") !== "websocket") return c.json({ error: "expected a websocket upgrade" }, 426);
   const p = await authenticate(c.env, c.req.raw);
   const yardId = c.req.param("yard");
-  assertYard(p, yardId);
+  await assertYard(c.env, p, yardId);
   const yard = await getYard(c.env.DB, yardId);
   if (!yard) return c.json({ error: "yard not found" }, 404);
   const headers = new Headers(c.req.raw.headers);
@@ -60,8 +67,12 @@ app.get("/api/yards/:yard/ws", async (c) => {
 app.get("/api/openapi.json", (c) => c.json(routeTable(new URL(c.req.url).origin)));
 app.route("/api", api);
 
+// Only reached through the OAuth provider, which has already validated the bearer token
+// (an OAuth access token, a per-agent key or the admin key) and put the grant in ctx.props.
 app.all("/mcp", async (c) => {
-  c.set("principal", await authenticate(c.env, c.req.raw));
+  const p = principalFromProps((c.executionCtx as ExecutionContext & { props?: GrantProps }).props);
+  if (!p) return c.json({ error: "unauthorized" }, 401);
+  c.set("principal", p);
   return handleMcp(c);
 });
 
@@ -113,8 +124,14 @@ function routeTable(origin: string) {
   };
 }
 
+const handlers = {
+  api: { fetch: (req: Request, env: Env, ctx: ExecutionContext) => app.fetch(req, env, ctx) },
+  web: { fetch: (req: Request, env: Env, ctx: ExecutionContext) => app.fetch(req, env, ctx) },
+};
+
 export default {
-  fetch: app.fetch,
+  /** OAuth 2.1 (discovery, registration, token) and bearer checks on /mcp, then the Hono app. */
+  fetch: (req: Request, env: Env, ctx: ExecutionContext) => oauthProvider(origin(env, req), handlers).fetch(req, env, ctx),
 
   /** Artifacts event subscription → Queue → here → Yard DO (live) + review Workflow. */
   async queue(batch: MessageBatch<ArtifactsPushEvent>, env: Env): Promise<void> {

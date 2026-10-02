@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { authenticate, devMode, type Principal } from "./auth";
 import type { Env } from "./env";
+import { currentUser } from "./social";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
 import * as svc from "./service";
 
@@ -29,9 +30,14 @@ export const api = new Hono<HonoEnv>()
     c.set("principal", await authenticate(c.env, c.req.raw));
     await next();
   })
-  .get("/me", (c) => {
+  .get("/me", async (c) => {
     const p = c.get("principal");
-    return c.json({ principal: p, devMode: devMode(c.env), artifactsMode: c.env.ARTIFACTS_MODE === "local" || !c.env.ARTIFACTS ? "local" : "remote" });
+    return c.json({
+      principal: p,
+      user: await currentUser(c.env, c.req.raw),
+      devMode: devMode(c.env),
+      artifactsMode: c.env.ARTIFACTS_MODE === "local" || !c.env.ARTIFACTS ? "local" : "remote",
+    });
   })
 
   // ── yards ──

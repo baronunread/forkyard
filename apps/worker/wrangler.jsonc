@@ -6,13 +6,13 @@
   "name": "forkyard",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-30",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "observability": { "enabled": true },
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/mcp", "/git/*", "/llms.txt", "/AGENTS.md", "/healthz"]
+    "run_worker_first": ["/api/*", "/mcp", "/git/*", "/auth/*", "/authorize", "/oauth/*", "/.well-known/*", "/llms.txt", "/AGENTS.md", "/healthz"]
   },
   "vars": {
     "ARTIFACTS_MODE": "local",
@@ -31,6 +31,8 @@
     ]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Yard", "LocalArtifacts"] }],
+  // OAuth grants, tokens and registered agent clients (@cloudflare/workers-oauth-provider).
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "00000000000000000000000000000000" }],
   "queues": {
     "producers": [{ "binding": "ARTIFACT_EVENTS", "queue": "forkyard-artifact-events" }],
     // Batch size 1: a push is delivered as soon as it arrives (live path latency).
@@ -48,11 +50,13 @@
         "LOCAL_GIT_ORIGIN": "",
         "FORK_TTL_HOURS": "24",
         "TOKEN_TTL_SECONDS": "14400",
-        "REVIEW_MODEL": "@cf/moonshotai/kimi-k2.7-code"
+        "REVIEW_MODEL": "@cf/moonshotai/kimi-k2.7-code",
+        "PUBLIC_ORIGIN": "https://forkyard.example.com"
         // Secrets (wrangler secret put --env production):
-        //   FORKYARD_ADMIN_KEY            admin/orchestrator key
-        //   ACCESS_TEAM_DOMAIN, ACCESS_AUD  Cloudflare Access for humans
-        //   K2_API_TOKEN                  only for the K2 spike consumer
+        //   GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET   GitHub sign-in (callback: <origin>/auth/github/callback)
+        //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in (callback: <origin>/auth/google/callback)
+        //   FORKYARD_ADMIN_KEY                       operator key for scripts and benchmarks
+        //   K2_API_TOKEN                             only for the K2 spike consumer
       },
       "artifacts": [
         { "binding": "ARTIFACTS", "namespace": "forkyard" }
@@ -60,6 +64,7 @@
         // { "binding": "ARTIFACTS_EU", "namespace": "forkyard-eu" }
       ],
       "ai": { "binding": "AI" },
+      "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
       "d1_databases": [
         { "binding": "DB", "database_name": "forkyard", "database_id": "REPLACE_WITH_D1_DATABASE_ID", "migrations_dir": "migrations" }
       ],

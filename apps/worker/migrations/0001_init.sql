@@ -117,3 +117,39 @@ CREATE TABLE bench_runs (
   stats TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- People sign in with GitHub or Google; yards belong to their members.
+
+CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  email TEXT,
+  name TEXT NOT NULL,
+  avatar_url TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE accounts (
+  provider TEXT NOT NULL,
+  provider_user_id TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (provider, provider_user_id)
+);
+CREATE INDEX accounts_user ON accounts (user_id);
+
+CREATE TABLE sessions (
+  id_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX sessions_user ON sessions (user_id);
+
+CREATE TABLE yard_members (
+  yard_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (yard_id, user_id)
+);
+CREATE INDEX yard_members_user ON yard_members (user_id);

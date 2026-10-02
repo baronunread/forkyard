@@ -18,10 +18,12 @@
     "build:types": "tsc -p tsconfig.types.json"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.2.1",
     "@forkyard/shared": "workspace:*",
     "@hono/mcp": "^0.3.2",
     "@hono/zod-validator": "^0.9.1",
     "@modelcontextprotocol/sdk": "^1.31.0",
+    "arctic": "^3.7.0",
     "diff": "^9.0.0",
     "hono": "^4.13.0",
     "jose": "^6.1.0",

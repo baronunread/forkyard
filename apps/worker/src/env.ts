@@ -38,14 +38,22 @@ export interface Env {
   // Static assets
   ASSETS?: Fetcher;
 
-  // Auth
+  // Auth: people sign in with GitHub / Google; agents use OAuth (or per-agent keys)
   FORKYARD_ADMIN_KEY?: string;
-  ACCESS_TEAM_DOMAIN?: string;
-  ACCESS_AUD?: string;
+  /** "true" forces dev mode (anonymous admin + dev sign-in) even with providers configured. */
+  FORKYARD_DEV?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  OAUTH_KV: KVNamespace;
+  /** Injected by @cloudflare/workers-oauth-provider. */
+  OAUTH_PROVIDER: import("@cloudflare/workers-oauth-provider").OAuthHelpers;
 
   // Tuning
   FORK_TTL_HOURS?: string;
   TOKEN_TTL_SECONDS?: string;
+  /** Canonical origin, e.g. https://forkyard.example.com — the OAuth issuer and MCP resource. */
   PUBLIC_ORIGIN?: string;
 }
 
