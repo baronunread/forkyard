@@ -191,6 +191,19 @@ export const api = new Hono<HonoEnv>()
     async (c) => c.json(await svc.benchRecord(c.env, c.get("principal"), c.req.valid("json"))),
   )
 
+  .post(
+    "/admin/cleanup",
+    zValidator(
+      "json",
+      z.object({
+        ttlHours: z.number().min(0).default(24),
+        abandonOpenOlderThanHours: z.number().min(0).optional(),
+        sweepBench: z.boolean().default(true),
+      }),
+    ),
+    async (c) => c.json(await svc.adminCleanup(c.env, c.get("principal"), c.req.valid("json"))),
+  )
+
   // ── ingest: Artifacts events delivered over HTTP (manual replay / alternative transports) ──
   .post("/ingest/artifacts", async (c) => {
     if (c.get("principal").kind !== "admin") return c.json({ error: "admin only" }, 403);

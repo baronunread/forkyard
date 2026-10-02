@@ -2,7 +2,7 @@
  * Demo seed: one yard, one task, four scripted agents working concurrently.
  *
  *   pnpm seed                      # demo pacing (good for recording), decides at the end
- *   pnpm seed --pace=fast          # same story, no pauses
+ *   pnpm seed --pace=fast          # same story, no pauses (--pace=slow doubles the pauses)
  *   pnpm seed --no-decide          # leave the decision to you in the UI
  *   pnpm seed --yard=my-demo
  *
@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ADMIN_KEY, BASE, Git, Mcp, api, arg, log, sleep } from "./lib";
 
-const pace = arg("pace", "demo") === "fast" ? 0 : 1;
+const pace = ({ fast: 0, demo: 1, slow: 2 } as Record<string, number>)[arg("pace", "demo")!] ?? 1;
 const decide = arg("no-decide") !== "true";
 const yardId = arg("yard", `demo-${Date.now().toString(36).slice(-4)}`)!;
 const beat = (ms: number) => sleep(ms * pace);
@@ -301,7 +301,7 @@ AGENTS[1]!.steps[1]!.files["src/server.ts"] = AGENTS[1]!.steps[0]!.files["src/se
 );
 
 async function main() {
-  console.log(`Forkyard seed → ${BASE}  (yard "${yardId}", pace ${pace ? "demo" : "fast"})\n`);
+  console.log(`Forkyard seed → ${BASE}  (yard "${yardId}", pace ×${pace})\n`);
   await api("/yards", { body: { id: yardId, name: "Todo service (demo)", files: BASE_FILES } });
   log("seed", `created yard ${yardId}`);
   await beat(1500);

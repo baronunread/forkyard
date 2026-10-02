@@ -39,6 +39,7 @@ import { applyDecision, DecideError, previewDecision } from "./decide";
 import { computeHunks, forkDiff, mapLimit, readPathAt } from "./diff";
 import type { Env } from "./env";
 import { buildCommit, textFile } from "./git/build";
+import { deletePreviewBranch, previewBranchSlug } from "./preview";
 import { yardStub } from "./yard";
 
 export class ServiceError extends Error {
@@ -80,6 +81,7 @@ async function mustTask(env: Env, yardId: string, taskId: string): Promise<Task>
 export function previewUrl(yard: Yard, agent: Pick<Agent, "id" | "taskId" | "forkName">): string | null {
   if (!yard.previewUrlTemplate) return null;
   return yard.previewUrlTemplate
+    .replaceAll("{branch}", previewBranchSlug(agent.taskId, agent.id))
     .replaceAll("{yard}", yard.id)
     .replaceAll("{task}", agent.taskId)
     .replaceAll("{agent}", agent.id)
@@ -510,6 +512,8 @@ export async function cleanupForks(env: Env, ttlHours: number): Promise<{ delete
   await mapLimit(results, 8, async (r) => {
     try {
       await getArtifacts(env, r.jurisdiction === "eu" ? "eu" : "default").delete(r.fork_name);
+      const yard = await getYard(env.DB, r.yard_id);
+      if (yard?.previewUrlTemplate) await deletePreviewBranch(env, yard, r.task_id, r.id).catch((err) => console.warn("preview branch cleanup", err));
       await env.DB.prepare("UPDATE agents SET fork_deleted_at = ? WHERE yard_id = ? AND task_id = ? AND id = ?")
         .bind(now(), r.yard_id, r.task_id, r.id)
         .run();
@@ -524,6 +528,48 @@ export async function cleanupForks(env: Env, ttlHours: number): Promise<{ delete
     }
   });
   return { deleted, failed };
+}
+
+/**
+ * Admin sweep before billing starts: optionally abandon stale open tasks,
+ * delete forks of closed tasks past `ttlHours`, and remove leftover bench forks.
+ */
+export async function adminCleanup(
+  env: Env,
+  p: Principal,
+  opts: { ttlHours: number; abandonOpenOlderThanHours?: number; sweepBench?: boolean },
+) {
+  assertAdmin(p);
+  const abandoned: string[] = [];
+  if (opts.abandonOpenOlderThanHours !== undefined) {
+    const cutoff = new Date(Date.now() - opts.abandonOpenOlderThanHours * 3600_000).toISOString();
+    const { results } = await env.DB.prepare("SELECT yard_id, id FROM tasks WHERE status = 'open' AND created_at <= ?").bind(cutoff).all<{ yard_id: string; id: string }>();
+    for (const t of results) {
+      const yard = await getYard(env.DB, t.yard_id);
+      if (!yard) continue;
+      await yardStub(env, yard).abandon(t.id, "abandoned by admin cleanup");
+      abandoned.push(`${t.yard_id}/${t.id}`);
+    }
+  }
+  const forks = await cleanupForks(env, opts.ttlHours);
+  const bench: string[] = [];
+  if (opts.sweepBench) {
+    for (const j of ["default", "eu"] as const) {
+      let artifacts;
+      try {
+        artifacts = getArtifacts(env, j);
+      } catch {
+        continue;
+      }
+      let cursor: string | undefined;
+      do {
+        const page = await artifacts.list({ limit: 200, cursor });
+        for (const r of page.repos) if (r.name.includes("--bench--") && (await artifacts.delete(r.name))) bench.push(r.name);
+        cursor = page.cursor;
+      } while (cursor);
+    }
+  }
+  return { abandoned, deletedForks: forks.deleted, failedForks: forks.failed, deletedBenchForks: bench };
 }
 
 export function forbid(message: string): never {

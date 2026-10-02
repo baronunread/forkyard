@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/server";
-import { ClaimInput, CreateTaskInput, DecideInput, describeEvent, IntentInput, MCP_TOOLS } from "@forkyard/shared";
+import { ClaimInput, CreateTaskInput, CreateYardInput, DecideInput, describeEvent, IntentInput, MCP_TOOLS } from "@forkyard/shared";
 import { createMcpHandler } from "agents/mcp";
 import { z } from "zod";
 import type { Principal } from "./auth";
@@ -56,6 +56,18 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
     {
       instructions: `Forkyard: agent-native Git on Cloudflare. Start with workspace_get, then claim_paths before editing, intent_record before pushing. Docs: ${origin}/llms.txt`,
     },
+  );
+
+  server.registerTool(
+    "yard_list",
+    { description: desc.yard_list, inputSchema: z.object({}) },
+    wrap(async () => ok({ yards: await svc.yardsList(env, p) })),
+  );
+
+  server.registerTool(
+    "yard_create",
+    { description: desc.yard_create, inputSchema: CreateYardInput },
+    wrap(async (a) => ok(await svc.yardCreate(env, p, a))),
   );
 
   server.registerTool(
@@ -229,6 +241,19 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
     wrap(async (a) => {
       const s = resolve(p, a);
       return ok(await svc.taskAbandon(env, p, s.yardId, s.taskId, a.reason));
+    }),
+  );
+
+  server.registerTool(
+    "bench_fork",
+    {
+      description: desc.bench_fork,
+      inputSchema: z.object({ yardId: scope.yardId, concurrency: z.number().int().min(1).max(100).default(5), label: z.string().optional() }),
+    },
+    wrap(async (a) => {
+      const { yardId } = resolve(p, a, false);
+      const r = await svc.benchFork(env, p, yardId, a.concurrency, a.label);
+      return ok(r, `forked ×${r.concurrency}: p50 ${r.stats.p50} ms, p95 ${r.stats.p95} ms, p99 ${r.stats.p99} ms (${r.stats.failures} failures)`);
     }),
   );
 

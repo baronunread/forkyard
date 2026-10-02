@@ -92,6 +92,7 @@ function routeTable(origin: string) {
       "/yards/{yard}/tasks/{task}/agents/{agent}/reviews": { get: { summary: "review_get" } },
       "/bench": { get: { summary: "Benchmark runs" } },
       "/bench/fork": { post: { summary: "Fork N times concurrently and report p50/p95/p99" } },
+      "/admin/cleanup": { post: { summary: "Delete forks of closed tasks past a TTL; optionally abandon stale tasks and sweep bench forks" } },
     },
   };
 }

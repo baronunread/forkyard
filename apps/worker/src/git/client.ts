@@ -71,11 +71,11 @@ export async function pushObjects(opts: {
   if (opts.expectedOld !== undefined && (opts.expectedOld ?? ZERO_HASH) !== old) {
     throw new PushRejectedError(`${opts.ref} moved to ${old.slice(0, 7)} (expected ${opts.expectedOld?.slice(0, 7)})`, "STALE");
   }
-  const body = concat([
-    pkt(`${old} ${opts.newHash} ${opts.ref}\0report-status agent=forkyard\n`),
-    FLUSH,
-    writePack(opts.objects),
-  ]);
+  const deleting = opts.newHash === ZERO_HASH;
+  if (deleting && old === ZERO_HASH) return { old };
+  const caps = deleting ? "report-status delete-refs agent=forkyard" : "report-status agent=forkyard";
+  // A delete-only command list carries no packfile.
+  const body = concat([pkt(`${old} ${opts.newHash} ${opts.ref}\0${caps}\n`), FLUSH, ...(deleting ? [] : [writePack(opts.objects)])]);
   const res = await fetcher(
     new Request(`${opts.remote.replace(/\/$/, "")}/git-receive-pack`, {
       method: "POST",

@@ -4,6 +4,8 @@
  */
 
 export const MCP_TOOLS = [
+  ["yard_list", "List the yards you can see."],
+  ["yard_create", "Create a yard: a base repo (from files or a public git URL) plus everything around it. Admin only."],
   ["yard_status", "Active tasks, agents, claims, overlaps and recent events."],
   ["task_create", "Create a task and fan it out to N agents, each with its own fork."],
   ["workspace_get", "Your fork's git remote + scoped token, AGENTS.md, the task brief, and a digest of the other agents."],
@@ -16,6 +18,7 @@ export const MCP_TOOLS = [
   ["decide_preview", "Dry-run a decision: pick a winner or assemble hunks; returns the combined result."],
   ["decide", "Apply a decision to the base repo (judge or admin only)."],
   ["task_abandon", "Abandon a task; its forks are cleaned up after the TTL."],
+  ["bench_fork", "Fork the base repo N times concurrently and report p50/p95/p99 (forks are deleted right away). Admin only."],
 ] as const;
 
 export function llmsTxt(origin: string): string {

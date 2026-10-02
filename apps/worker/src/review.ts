@@ -13,6 +13,7 @@ import { disposeRepo, getArtifacts } from "./artifacts";
 import { agentByForkName, getAgent, getTask, getYard, listIntents, newId, now } from "./db";
 import { computeHunks, forkDiff, mapLimit, readPathAt, readText } from "./diff";
 import type { Env } from "./env";
+import { mirrorPreviewBranch } from "./preview";
 import { yardStub } from "./yard";
 
 /**
@@ -89,6 +90,14 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewParams | Artif
     await step.do("publish footprint", async () => {
       await yardStub(this.env, { id: p.yardId, jurisdiction: p.jurisdiction }).onDiff(p.taskId, p.agentId, p.commit, files);
       return true;
+    });
+
+    await step.do("mirror preview branch", { retries: { limit: 2, delay: "2 seconds" } }, async () => {
+      // Only yards wired to Workers Builds (they set a preview URL template) get preview branches.
+      const yard = await getYard(this.env.DB, p.yardId);
+      const agent = await getAgent(this.env.DB, p.yardId, p.taskId, p.agentId);
+      if (!yard?.previewUrlTemplate || !agent || agent.headCommit !== p.commit) return null;
+      return mirrorPreviewBranch(this.env, yard, agent, p.baseCommit, p.commit);
     });
 
     const intent = await step.do("pick up intent", async () => {

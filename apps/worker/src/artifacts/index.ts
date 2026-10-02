@@ -2,7 +2,7 @@ import type { Jurisdiction } from "@forkyard/shared";
 import type { Env } from "../env";
 import type { BuiltCommit } from "../git/build";
 import { pushObjects } from "../git/client";
-import type { TreeEntry } from "../git/objects";
+import { ZERO_HASH, type GitObject, type TreeEntry } from "../git/objects";
 
 /**
  * One interface over the real Artifacts Workers binding and the local
@@ -36,6 +36,8 @@ export interface ArtifactsApi {
   delete(name: string): Promise<boolean>;
   /** Write a prepared commit to a ref (Forkyard-side merge). */
   writeCommit(repo: string, built: BuiltCommit, ref: string, expectedOld: string | null): Promise<void>;
+  /** Delete a ref if it still points at `expectedOld`. */
+  deleteRef(repo: string, ref: string, expectedOld: string): Promise<void>;
 }
 
 export function errorCode(err: unknown): string | null {
@@ -64,21 +66,25 @@ function remoteArtifacts(binding: Artifacts): ArtifactsApi {
     import: (params) => binding.import(params),
     list: (opts) => binding.list(opts),
     delete: (name) => binding.delete(name),
-    async writeCommit(repoName, built, ref, expectedOld) {
-      const repo = await binding.get(repoName);
-      try {
-        const info = await repo.info();
-        const token = await repo.createToken("write", 120);
-        try {
-          await pushObjects({ remote: info.remote, token: token.plaintext, ref, newHash: built.commit, objects: built.objects, expectedOld });
-        } finally {
-          await repo.revokeToken(token.id).catch(() => false);
-        }
-      } finally {
-        repo[Symbol.dispose]?.();
-      }
-    },
+    writeCommit: (repoName, built, ref, expectedOld) => pushWithToken(binding, repoName, ref, built.commit, built.objects, expectedOld),
+    deleteRef: (repoName, ref, expectedOld) => pushWithToken(binding, repoName, ref, ZERO_HASH, [], expectedOld),
   };
+}
+
+/** Push over git smart HTTP with a short-lived write token that is revoked afterwards. */
+async function pushWithToken(binding: Artifacts, repoName: string, ref: string, newHash: string, objects: GitObject[], expectedOld: string | null) {
+  const repo = await binding.get(repoName);
+  try {
+    const info = await repo.info();
+    const token = await repo.createToken("write", 120);
+    try {
+      await pushObjects({ remote: info.remote, token: token.plaintext, ref, newHash, objects, expectedOld });
+    } finally {
+      await repo.revokeToken(token.id).catch(() => false);
+    }
+  } finally {
+    repo[Symbol.dispose]?.();
+  }
 }
 
 function localArtifacts(env: Env, jurisdiction: Jurisdiction): ArtifactsApi {
@@ -112,6 +118,7 @@ function localArtifacts(env: Env, jurisdiction: Jurisdiction): ArtifactsApi {
     list: (opts) => stub.list(opts) as Promise<ArtifactsRepoListResult>,
     delete: (name) => stub.delete(name),
     writeCommit: (repoName, built, ref, expectedOld) => stub.writeObjects(repoName, built.objects, ref, expectedOld, built.commit),
+    deleteRef: (repoName, ref, expectedOld) => stub.writeObjects(repoName, [], ref, expectedOld, ZERO_HASH),
   };
 }
 

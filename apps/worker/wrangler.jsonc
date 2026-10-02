@@ -45,6 +45,7 @@
       "vars": {
         "ARTIFACTS_MODE": "remote",
         "ARTIFACTS_NAMESPACE": "forkyard",
+        "LOCAL_GIT_ORIGIN": "",
         "FORK_TTL_HOURS": "24",
         "TOKEN_TTL_SECONDS": "14400",
         "REVIEW_MODEL": "@cf/moonshotai/kimi-k2.7-code"

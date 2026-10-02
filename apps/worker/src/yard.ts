@@ -538,6 +538,7 @@ export class Yard extends DurableObject<Env> {
       added.push({ taskId, agentId, pattern, createdAt });
     }
     if (added.length) await this.append({ type: "claim.added", taskId, agentId, data: { claims: added } });
+    await this.markWorking(taskId, agentId, "claimed paths");
     await this.recomputeOverlaps(taskId);
     return {
       claims: this.claimsFor(taskId).filter((c) => c.agentId === agentId),
@@ -627,7 +628,17 @@ export class Yard extends DurableObject<Env> {
       .bind(intent.id, yard.id, taskId, agentId, intent.summary, intent.why, intent.details, commit, source, intent.createdAt)
       .run();
     await this.append({ type: "intent.recorded", taskId, agentId, data: { intent } });
+    if (source !== "git") await this.markWorking(taskId, agentId, "recorded an intent");
     return intent;
+  }
+
+  /** First sign of life after the fork is ready moves an agent from `ready` to `working`. */
+  private async markWorking(taskId: string, agentId: string, note: string): Promise<void> {
+    const yard = await this.yard();
+    const res = await this.env.DB.prepare("UPDATE agents SET status = 'working' WHERE yard_id = ? AND task_id = ? AND id = ? AND status = 'ready'")
+      .bind(yard.id, taskId, agentId)
+      .run();
+    if (res.meta.changes) await this.append({ type: "agent.status", taskId, agentId, data: { status: "working", note } });
   }
 
   async onPush(agent: Agent, input: PushInput): Promise<{ workflowId: string | null }> {
@@ -727,14 +738,6 @@ export class Yard extends DurableObject<Env> {
       .bind(yard.id, review.taskId, review.agentId, review.commit)
       .run();
     await this.append({ type: "review.completed", taskId: review.taskId, agentId: review.agentId, data: { review } });
-  }
-
-  async setAgentStatus(taskId: string, agentId: string, status: "working", note: string | null): Promise<void> {
-    const yard = await this.yard();
-    await this.env.DB.prepare("UPDATE agents SET status = ? WHERE yard_id = ? AND task_id = ? AND id = ? AND status IN ('ready','pushed','reviewed','working')")
-      .bind(status, yard.id, taskId, agentId)
-      .run();
-    await this.append({ type: "agent.status", taskId, agentId, data: { status, note } });
   }
 
   async onDecision(decision: Decision): Promise<void> {

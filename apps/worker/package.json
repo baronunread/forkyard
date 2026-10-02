@@ -9,12 +9,12 @@
   },
   "scripts": {
     "dev": "wrangler dev --port 8787 --persist-to ../../.wrangler/state",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy --env production",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "types": "wrangler types --env-interface CloudflareEnv src/worker-configuration.d.ts",
     "db:migrate:local": "wrangler d1 migrations apply forkyard --local --persist-to ../../.wrangler/state",
-    "db:migrate:remote": "wrangler d1 migrations apply forkyard --remote",
+    "db:migrate:remote": "wrangler d1 migrations apply forkyard --remote --env production",
     "build:types": "tsc -p tsconfig.types.json"
   },
   "dependencies": {
