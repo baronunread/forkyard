@@ -30,6 +30,10 @@ Workers Builds connects **one** Artifacts repo per Worker, deploys `main` and bu
 
 The MCP endpoint uses [`@hono/mcp`](https://github.com/honojs/middleware/tree/main/packages/mcp)'s `StreamableHTTPTransport` with the MCP SDK's `McpServer`, mounted as an ordinary Hono route so it shares the API's auth. It runs stateless (no session ids): live state is in the Yard Durable Object, so each request builds a fresh server for the caller's principal. (Cloudflare's `agents` package was the other option; `McpAgent` adds a Durable Object per session, which would be a second source of truth here.)
 
+## Sign-in and agent OAuth
+
+People sign in with GitHub or Google through [`arctic`](https://arcticjs.dev) (authorization code, PKCE for Google), with sessions in D1. Agents use MCP's authorization flow through [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider) in its one-Worker shape: it serves the protected-resource and authorization-server metadata, dynamic client registration and Client ID Metadata Documents (hence the `global_fetch_strictly_public` flag), the token endpoint, and validates bearer tokens on `/mcp`. Forkyard owns `/authorize`: it sends the person to sign in if needed, then shows a consent screen (built with the library's `beginConsent` / `approveConsent`, so it can't be framed or forged) where they pick what the agent acts as. The choice is stored in the grant's props. Per-agent `fy_` keys and the operator key are accepted through `resolveExternalToken`. OAuth grants live in the `OAUTH_KV` namespace.
+
 ## Local development
 
 There is no local simulator for Artifacts in `wrangler dev`, so `apps/worker/src/artifacts/emulator.ts` implements the binding surface Forkyard uses (plus git smart HTTP with real pack/delta handling, and `cf.artifacts.repo.pushed` events into the local Queue) on a Durable Object. It is selected by `ARTIFACTS_MODE=local` (the default in `wrangler.jsonc`) and is never used by `env.production`. Its git server is tested against the real `git` CLI (`apps/worker/test/git-protocol.test.ts`).

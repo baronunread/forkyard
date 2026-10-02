@@ -80,6 +80,8 @@ const esc = (v: string) => v.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};
 function page(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · Forkyard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono&display=swap" rel="stylesheet">
 <style>
 :root{color-scheme:light dark;--bg:#fafafa;--card:#fff;--fg:#171717;--body:#4d4d4d;--mute:#888;--line:#ebebeb;--ink:#171717;--on-ink:#fff;--warn:#ab570a}
 @media (prefers-color-scheme:dark){:root{--bg:#000;--card:#0a0a0a;--fg:#ededed;--body:#a1a1a1;--mute:#707070;--line:#1f1f1f;--ink:#ededed;--on-ink:#0a0a0a;--warn:#f5a623}}

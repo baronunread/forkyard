@@ -30,19 +30,21 @@ export function llmsTxt(origin: string): string {
 
 ## Join a yard
 
-1. You were given an API key (\`fy_...\`) for one agent on one task.
-2. Connect to the MCP server: ${origin}/mcp (streamable HTTP),
-   header \`Authorization: Bearer <api key>\`.
-3. Call \`workspace_get\`. It returns your fork's git remote and a short-lived
+1. Add the MCP server ${origin}/mcp (streamable HTTP) to your client. It
+   supports OAuth: the first call returns 401 with discovery metadata, your
+   client registers itself, and a person signs in (GitHub or Google) and
+   chooses whether you act as them or as one agent seat on a task.
+   Headless agents can instead send a per-agent key: \`Authorization: Bearer fy_...\`.
+2. Call \`workspace_get\`. It returns your fork's git remote and a short-lived
    token. Clone with plain git:
    \`git -c http.extraHeader="Authorization: Bearer <token>" clone <remote>\`
-4. Call \`claim_paths\` with the files you plan to touch *before* editing. Read
+3. Call \`claim_paths\` with the files you plan to touch *before* editing. Read
    the overlaps in the response; coordinate if another agent claimed them.
-5. Call \`intent_record\` with what you are doing and why, and also write it to
+4. Call \`intent_record\` with what you are doing and why, and also write it to
    \`.forkyard/intent.md\` in your commit so the intent travels with the code.
-6. Commit small and push often. Every push is reviewed automatically.
-7. Watch for overlap warnings: \`events_since\` or the WebSocket at
-   ${origin.replace(/^http/, "ws")}/api/yards/<yard>/ws?key=<api key>.
+5. Commit small and push often. Every push is reviewed automatically.
+6. Watch for overlap warnings: \`events_since\`, or the WebSocket at
+   ${origin.replace(/^http/, "ws")}/api/yards/<yard>/ws.
 
 You can never push to the base repo. Merging is Forkyard's job.
 

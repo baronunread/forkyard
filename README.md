@@ -11,6 +11,8 @@ Built for Cloudflare's [“Build the next Git platform”](https://blog.cloudfla
 | Compare one file across agents | Decide: assemble hunks, preview, apply |
 | --- | --- |
 | ![Compare mode](docs/screenshots/compare-light.png) | ![Decide mode](docs/screenshots/decide-dark.png) |
+| **People sign in with GitHub or Google** | **Agents connect over OAuth and get a seat** |
+| ![Sign in](docs/screenshots/sign-in.png) | ![Agent consent screen](docs/screenshots/agent-consent.png) |
 
 ## Quick start
 
@@ -48,7 +50,12 @@ Other scripts:
    npx wrangler queues subscription create forkyard-artifact-events --source artifacts.repo --events pushed
    ```
    The docs show the fully-qualified `cf.artifacts.repo.pushed`, but other builders report that the subscriptions API currently accepts only the bare suffix; if `pushed` is rejected, use `cf.artifacts.repo.pushed`. Either way, messages arrive with `type: "cf.artifacts.repo.pushed"`.
-3. Secrets: `npx wrangler secret put FORKYARD_ADMIN_KEY --env production` (for orchestrators and the seed script), and/or put the Worker behind **Cloudflare Access** and set `ACCESS_TEAM_DOMAIN` + `ACCESS_AUD`.
+3. Sign-in and OAuth: create a KV namespace for OAuth grants (`npx wrangler kv namespace create OAUTH_KV`) and put its id in `env.production`; set `PUBLIC_ORIGIN`. Create a GitHub OAuth app and/or a Google OAuth client with callbacks `<origin>/auth/github/callback` and `<origin>/auth/google/callback`, then:
+   ```sh
+   npx wrangler secret put GITHUB_CLIENT_ID --env production      # and GITHUB_CLIENT_SECRET
+   npx wrangler secret put GOOGLE_CLIENT_ID --env production      # and GOOGLE_CLIENT_SECRET
+   npx wrangler secret put FORKYARD_ADMIN_KEY --env production    # operator key for seed / bench scripts
+   ```
 4. `pnpm deploy` (builds the UI, applies D1 migrations, deploys `--env production`).
 5. Optional: connect the base repos to **Workers Builds** (Settings → Builds, enable Preview builds) and set each yard's preview URL template, e.g. `https://{branch}-myapp.<subdomain>.workers.dev`. Forkyard mirrors every agent's latest push to a `fy/<task>/<agent>` branch so each fork gets its own Preview URL.
 6. Seed and benchmark the deployment:
@@ -109,7 +116,7 @@ flowchart LR
 
 ### For agents
 
-Point any MCP-capable coding agent at `/mcp` with its key (`Authorization: Bearer fy_…`). `/llms.txt` and `/AGENTS.md` explain the workflow.
+Add `/mcp` to any MCP client (Claude Code, Codex, Cursor, …). It is an OAuth 2.1 protected resource: the client discovers the authorization server, registers itself, and a person signs in and chooses on the consent screen whether the agent acts **as them** (their yards; it can create tasks and decide) or as **one agent seat** on an open task. Headless agents can skip OAuth with the per-agent key handed out when a task is created (`Authorization: Bearer fy_…`). `/llms.txt` and `/AGENTS.md` explain the workflow.
 
 | Tool | REST twin |
 | --- | --- |
@@ -126,7 +133,11 @@ Point any MCP-capable coding agent at `/mcp` with its key (`Authorization: Beare
 | `task_abandon` | `POST …/tasks/:task/abandon` |
 | `bench_fork` | `POST /api/bench/fork` |
 
-With an agent key, ids default to the key's scope, so `workspace_get` takes no arguments. Agent keys are scoped to one task; only humans, admin keys and `judge` agents can decide. Fork tokens are scoped to one fork and expire; agents never get the base repo's write path.
+When an agent acts as a seat, ids default to that seat, so `workspace_get` takes no arguments. Seats are scoped to one task; only people, agents acting as a person, and `judge` seats can decide. Fork tokens are scoped to one fork and expire; agents never get the base repo's write path.
+
+### Accounts
+
+People sign in with **GitHub** or **Google** (sessions in D1, HttpOnly cookie). Yards belong to their members; whoever creates a yard owns it. Locally, with no provider configured, the sign-in page offers **Continue as dev user**, and anonymous requests from scripts act as the operator. `FORKYARD_ADMIN_KEY` is the operator key for the seed and benchmark scripts on a deployment.
 
 ### For humans
 

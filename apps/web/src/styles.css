@@ -173,3 +173,10 @@ kbd.fy-kbd {
 }
 @keyframes fy-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
 .fy-pulse { animation: fy-pulse 1.4s ease-in-out infinite; }
+
+/* Plain buttons/links in the in-app scale (sign-in page, non-Kumo surfaces). */
+.fy-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; border: 0; text-decoration: none; }
+.fy-btn-primary { background: var(--fy-ink); color: var(--fy-on-ink); }
+.fy-btn-primary:hover { background: var(--fy-ink-hover); }
+.fy-btn-secondary { background: var(--fy-surface); color: var(--fy-fg); box-shadow: 0 0 0 1px var(--fy-border); }
+.fy-btn-secondary:hover { background: var(--fy-hover); }

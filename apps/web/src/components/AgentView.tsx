@@ -1,11 +1,11 @@
 import { Empty, Loader } from "@cloudflare/kumo";
-import { CheckCircle, GitCommit, WarningCircle, XCircle } from "@phosphor-icons/react";
+import { ArrowUpRight, CheckCircle, WarningCircle, XCircle } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import type { Compare, FileCompare, TaskAgent } from "../lib/api";
 import { fetchFileCompare } from "../lib/data";
 import { AgentChip } from "./AgentChip";
 import { FileDiff, LazyMount, type DiffStyle } from "./DiffView";
-import { Pill, Score } from "./Status";
+import { Score } from "./Status";
 
 /** Everything one agent did: intent first, then review, then every changed file. */
 export function AgentView({
@@ -33,77 +33,77 @@ export function AgentView({
     document.getElementById(fileAnchor(agent.id, focusFile))?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [focusFile, agent.id]);
 
+  const review = agent.review;
+  const failed = review?.checks.filter((c) => c.status === "fail") ?? [];
+  const warned = review?.checks.filter((c) => c.status === "warn") ?? [];
+  const passed = review?.checks.filter((c) => c.status === "pass") ?? [];
   return (
     <div className="space-y-4">
-      <section className="fy-card p-4" aria-label="Intent">
-        <div className="mb-2 flex items-center gap-2">
-          <AgentChip agent={agent} size={26} showHarness />
-          <span className="ml-auto">
-            <Score score={agent.review?.score} />
-          </span>
+      <section className="fy-card p-5" aria-label={`${agent.name}'s intent and review`}>
+        <div className="flex items-center gap-2.5">
+          <AgentChip agent={agent} size={24} />
+          <span className="font-mono text-xs text-kumo-subtle">{agent.harness}</span>
+          {agent.previewUrl && (
+            <a className="ml-auto inline-flex items-center gap-1 text-sm text-kumo-link hover:underline" href={agent.previewUrl} target="_blank" rel="noreferrer">
+              Preview <ArrowUpRight />
+            </a>
+          )}
         </div>
         {agent.intent ? (
           <>
-            <div className="fy-eyebrow">What & why</div>
-            <h3 className="mt-0.5 text-base font-semibold">{agent.intent.summary}</h3>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-kumo-default">{agent.intent.why}</p>
-            {agent.intent.details && <p className="mt-2 whitespace-pre-wrap text-sm text-kumo-subtle">{agent.intent.details}</p>}
-            <div className="mt-2 flex items-center gap-2 text-xs text-kumo-subtle">
-              <Pill>via {agent.intent.source}</Pill>
-              {agent.intent.commit && (
-                <span className="inline-flex items-center gap-1 font-mono">
-                  <GitCommit /> {agent.intent.commit.slice(0, 7)}
-                </span>
-              )}
-            </div>
+            <h3 className="fy-h3 mt-3">{agent.intent.summary}</h3>
+            <p className="mt-1 whitespace-pre-wrap text-kumo-subtle">{agent.intent.why}</p>
+            {agent.intent.details && <p className="mt-2 whitespace-pre-wrap text-kumo-subtle">{agent.intent.details}</p>}
           </>
         ) : (
-          <p className="text-sm italic text-kumo-subtle">{agent.name} has not recorded an intent yet.</p>
+          <p className="mt-3 text-kumo-inactive">No intent recorded yet.</p>
         )}
-      </section>
-
-      {agent.review && (
-        <section className="fy-card p-4" aria-label="Review">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="fy-eyebrow">Review</span>
-            <span className="text-xs text-kumo-subtle">
-              {agent.review.reviewer} · {agent.review.commit.slice(0, 7)}
-            </span>
-          </div>
-          <p className="text-sm">{agent.review.summary}</p>
-          <ul className="mt-2 grid gap-1 sm:grid-cols-2">
-            {agent.review.checks.map((c) => (
-              <li key={c.name} className="flex items-start gap-1.5 text-xs">
-                {c.status === "pass" ? (
-                  <CheckCircle weight="fill" className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-label="pass" />
-                ) : c.status === "warn" ? (
-                  <WarningCircle weight="fill" className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" aria-label="warning" />
-                ) : (
-                  <XCircle weight="fill" className="mt-0.5 shrink-0 text-red-600 dark:text-red-400" aria-label="fail" />
-                )}
-                <span>
-                  <span className="font-medium">{c.name}</span> <span className="text-kumo-subtle">{c.detail}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-          {agent.review.comments.length > 0 && (
-            <ul className="mt-2 space-y-1 border-t border-kumo-hairline pt-2 text-xs">
-              {agent.review.comments.slice(0, 8).map((c, i) => (
-                <li key={i}>
-                  {c.path && (
-                    <span className="font-mono text-kumo-subtle">
-                      {c.path}
-                      {c.line ? `:${c.line}` : ""}{" "}
-                    </span>
+        {review && (
+          <details className="mt-4 pt-4" style={{ borderTop: "1px solid var(--fy-border)" }}>
+            <summary className="flex cursor-pointer list-none items-center gap-3 text-sm">
+              <Score score={review.score} />
+              <span className="text-kumo-subtle">
+                {passed.length} passed
+                {warned.length > 0 && ` · ${warned.length} warning${warned.length > 1 ? "s" : ""}`}
+                {failed.length > 0 && ` · ${failed.length} failed`}
+              </span>
+              <span className="ml-auto text-xs text-kumo-subtle">Details</span>
+            </summary>
+            <p className="mt-3 text-sm">{review.summary}</p>
+            <ul className="mt-3 space-y-1.5">
+              {[...failed, ...warned, ...passed].map((c) => (
+                <li key={c.name} className="flex items-start gap-2 text-sm">
+                  {c.status === "pass" ? (
+                    <CheckCircle weight="fill" className="mt-0.5 shrink-0" style={{ color: "#29bc9b" }} aria-label="pass" />
+                  ) : c.status === "warn" ? (
+                    <WarningCircle weight="fill" className="mt-0.5 shrink-0" style={{ color: "#f5a623" }} aria-label="warning" />
+                  ) : (
+                    <XCircle weight="fill" className="mt-0.5 shrink-0" style={{ color: "#ee0000" }} aria-label="fail" />
                   )}
-                  {c.body}
+                  <span>
+                    <span className="font-medium">{c.name}</span> <span className="text-kumo-subtle">{c.detail}</span>
+                  </span>
                 </li>
               ))}
             </ul>
-          )}
-        </section>
-      )}
+            {review.comments.length > 0 && (
+              <ul className="mt-3 space-y-1 text-sm">
+                {review.comments.slice(0, 8).map((c, i) => (
+                  <li key={i}>
+                    {c.path && (
+                      <span className="font-mono text-xs text-kumo-subtle">
+                        {c.path}
+                        {c.line ? `:${c.line}` : ""}{" "}
+                      </span>
+                    )}
+                    {c.body}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        )}
+      </section>
 
       {files.length === 0 ? (
         <Empty
@@ -184,7 +184,6 @@ function AgentFile({
       intent={agent.intent?.summary}
       diffStyle={diffStyle}
       wrap={wrap}
-      header={<div className="border-b border-kumo-hairline px-3 py-1 text-right text-xs text-kumo-subtle">{stats}</div>}
     />
   );
 }

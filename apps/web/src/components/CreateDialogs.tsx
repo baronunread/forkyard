@@ -40,7 +40,7 @@ export function CreateYardDialog({ open, setOpen, onCreated }: { open: boolean; 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog className="space-y-3 p-6" size="lg">
-        <Dialog.Title className="text-lg font-semibold">New yard</Dialog.Title>
+        <Dialog.Title className="fy-h2">New yard</Dialog.Title>
         <Dialog.Description className="text-sm text-kumo-subtle">A yard is one base repo plus everything happening around it.</Dialog.Description>
         <Input label="Id" placeholder="my-project" value={id} onChange={(e) => setId(e.target.value.toLowerCase())} description="Lowercase letters, digits, single dashes." />
         <Input label="Name" placeholder="My project" value={name} onChange={(e) => setName(e.target.value)} />
@@ -101,7 +101,7 @@ export function CreateTaskDialog({ yard, open, setOpen, onCreated }: { yard: str
       <Dialog className="space-y-3 p-6" size="xl">
         {!created ? (
           <>
-            <Dialog.Title className="text-lg font-semibold">New task</Dialog.Title>
+            <Dialog.Title className="fy-h2">New task</Dialog.Title>
             <Dialog.Description className="text-sm text-kumo-subtle">Every agent gets its own fork of the base repo, a scoped git token and AGENTS.md.</Dialog.Description>
             <Input label="Title" placeholder="Add dark mode" value={title} onChange={(e) => setTitle(e.target.value)} />
             <InputArea label="Brief" placeholder="What should the agents do? Constraints, acceptance criteria…" value={brief} onChange={(e) => setBrief(e.target.value)} rows={4} />
@@ -135,18 +135,23 @@ export function CreateTaskDialog({ yard, open, setOpen, onCreated }: { yard: str
           </>
         ) : (
           <>
-            <Dialog.Title className="text-lg font-semibold">Task created — hand each agent its key</Dialog.Title>
+            <Dialog.Title className="fy-h2">Task created.</Dialog.Title>
             <Dialog.Description className="text-sm text-kumo-subtle">
-              Keys are shown once. An agent connects to <code>{location.origin}/mcp</code> with its key and calls <code>workspace_get</code>.
+              Each agent connects to the MCP server below, signs in, and picks its seat on this task.
             </Dialog.Description>
-            <div className="space-y-2">
-              {created.credentials.map((c) => (
-                <div key={c.agentId} className="grid grid-cols-[120px_1fr] items-center gap-2">
-                  <span className="truncate text-sm font-medium">{created.agents.find((a) => a.id === c.agentId)?.name}</span>
-                  <ClipboardText text={c.apiKey} />
-                </div>
-              ))}
-            </div>
+            <ClipboardText text={`${location.origin}/mcp`} />
+            <details className="text-sm">
+              <summary className="cursor-pointer text-kumo-subtle">Headless agents: use an API key instead</summary>
+              <p className="mt-2 text-xs text-kumo-subtle">Shown once. Send as <code>Authorization: Bearer …</code>.</p>
+              <div className="mt-2 space-y-2">
+                {created.credentials.map((c) => (
+                  <div key={c.agentId} className="grid grid-cols-[96px_1fr] items-center gap-2">
+                    <span className="truncate text-sm">{created.agents.find((a) => a.id === c.agentId)?.name}</span>
+                    <ClipboardText text={c.apiKey} />
+                  </div>
+                ))}
+              </div>
+            </details>
             <div className="flex justify-end pt-2">
               <Button variant="primary" className="fy-primary" onClick={close}>
                 Open task
