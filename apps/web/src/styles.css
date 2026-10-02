@@ -1,0 +1,54 @@
+@source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
+@import "@cloudflare/kumo/styles/tailwind";
+@import "tailwindcss";
+
+/* `dark:` follows the app toggle, not just the OS setting. */
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
+
+/*
+ * Resolved (non light-dark) surface colors, for components that render in a
+ * shadow root with their own color-scheme (@pierre/trees). Kept in step with
+ * Kumo's neutral tokens.
+ */
+:root {
+  --fy-surface: #ffffff;
+  --fy-surface-2: #fafafa;
+  --fy-fg: #18181b;
+  --fy-muted: #71717a;
+  --fy-border: #e4e4e7;
+  --fy-selected: #eef2ff;
+  --fy-overlap: #b45309;
+}
+:root[data-mode="dark"] {
+  --fy-surface: #121212;
+  --fy-surface-2: #181818;
+  --fy-fg: #f4f4f5;
+  --fy-muted: #a1a1aa;
+  --fy-border: #2a2a2e;
+  --fy-selected: #1e2235;
+  --fy-overlap: #fbbf24;
+}
+:root[data-mode="dark"] { color-scheme: dark; }
+:root[data-mode="light"] { color-scheme: light; }
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-kumo-canvas);
+  color: var(--text-color-kumo-default);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.fy-scroll { overflow: auto; scrollbar-gutter: stable; }
+.fy-hunk-focus { outline: 2px solid var(--color-kumo-brand, #f6821f); outline-offset: 2px; border-radius: 6px; }
+kbd.fy-kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--fy-border);
+  background: var(--fy-surface-2);
+}
+@keyframes fy-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
+.fy-pulse { animation: fy-pulse 1.4s ease-in-out infinite; }

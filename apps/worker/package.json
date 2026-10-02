@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    "./app": "./src/app-type.ts"
+    "./types": "./types/api.d.ts"
   },
   "scripts": {
     "dev": "wrangler dev --port 8787 --persist-to ../../.wrangler/state",
@@ -14,7 +14,8 @@
     "test": "vitest run",
     "types": "wrangler types --env-interface CloudflareEnv src/worker-configuration.d.ts",
     "db:migrate:local": "wrangler d1 migrations apply forkyard --local --persist-to ../../.wrangler/state",
-    "db:migrate:remote": "wrangler d1 migrations apply forkyard --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply forkyard --remote",
+    "build:types": "tsc -p tsconfig.types.json"
   },
   "dependencies": {
     "@forkyard/shared": "workspace:*",

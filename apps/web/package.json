@@ -1,0 +1,35 @@
+{
+  "name": "@forkyard/web",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @forkyard/worker build:types && vite --port 5173",
+    "build": "pnpm --filter @forkyard/worker build:types && tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "pnpm --filter @forkyard/worker build:types && tsc -p tsconfig.json --noEmit",
+    "test": "echo 'web: no unit tests (covered by scripts/e2e.ts)'"
+  },
+  "dependencies": {
+    "@cloudflare/kumo": "^2.14.0",
+    "@forkyard/shared": "workspace:*",
+    "@phosphor-icons/react": "^2.1.10",
+    "@pierre/diffs": "1.5.1",
+    "@pierre/trees": "1.0.0-beta.6",
+    "echarts": "^6.0.0",
+    "hono": "^4.13.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@forkyard/worker": "workspace:*",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
+  }
+}
