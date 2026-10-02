@@ -633,16 +633,32 @@ export class Yard extends DurableObject<Env> {
   async onPush(agent: Agent, input: PushInput): Promise<{ workflowId: string | null }> {
     const yard = await this.yard();
     const received = Date.now();
-    await this.env.DB.batch([
-      this.env.DB.prepare(
-        "UPDATE agents SET head_commit = ?, status = CASE WHEN status IN ('retired','failed') THEN status ELSE 'pushed' END WHERE yard_id = ? AND task_id = ? AND id = ?",
-      ).bind(input.after, yard.id, agent.taskId, agent.id),
-      // The latest intent without a commit is attached to this push.
-      this.env.DB.prepare(
-        `UPDATE intents SET commit_hash = ? WHERE id = (
-           SELECT id FROM intents WHERE yard_id = ? AND task_id = ? AND agent_id = ? AND commit_hash IS NULL ORDER BY created_at DESC LIMIT 1)`,
-      ).bind(input.after, yard.id, agent.taskId, agent.id),
-    ]);
+    // Event delivery is not ordered: a late event for an older push must not move the
+    // head backwards, so read the fork's actual branch head instead of trusting `after`.
+    const onDefault = input.ref === `refs/heads/${yard.defaultBranch}`;
+    let head = input.after;
+    if (onDefault) {
+      const repo = await this.artifacts().get(agent.forkName);
+      try {
+        const [c] = await repo.log({ ref: yard.defaultBranch, limit: 1 });
+        if (c) head = c.hash;
+      } catch {
+        /* fall back to the event's commit */
+      } finally {
+        disposeRepo(repo);
+      }
+    }
+    if (onDefault)
+      await this.env.DB.batch([
+        this.env.DB.prepare(
+          "UPDATE agents SET head_commit = ?, status = CASE WHEN status IN ('retired','failed') THEN status ELSE 'pushed' END WHERE yard_id = ? AND task_id = ? AND id = ?",
+        ).bind(head, yard.id, agent.taskId, agent.id),
+        // The latest intent without a commit is attached to this push.
+        this.env.DB.prepare(
+          `UPDATE intents SET commit_hash = ? WHERE id = (
+             SELECT id FROM intents WHERE yard_id = ? AND task_id = ? AND agent_id = ? AND commit_hash IS NULL ORDER BY created_at DESC LIMIT 1)`,
+        ).bind(input.after, yard.id, agent.taskId, agent.id),
+      ]);
     const ev = await this.append({
       type: "push.received",
       taskId: agent.taskId,
@@ -660,11 +676,12 @@ export class Yard extends DurableObject<Env> {
       const lat = received - Date.parse(input.emittedAt);
       if (Number.isFinite(lat)) this.sql.exec("INSERT INTO live_samples (seq, latency_ms, observed_at) VALUES (?, ?, ?)", ev.seq, lat, now());
     }
-    if (!input.startReview) return { workflowId: null };
+    if (!input.startReview || !onDefault) return { workflowId: null };
     const task = await this.env.DB.prepare("SELECT base_commit FROM tasks WHERE yard_id = ? AND id = ?")
       .bind(yard.id, agent.taskId)
       .first<{ base_commit: string }>();
-    const workflowId = `${agent.forkName}-${input.after.slice(0, 12)}`.slice(0, 100);
+    // Review the branch head (identical ids dedupe repeated deliveries).
+    const workflowId = `${agent.forkName}-${head.slice(0, 12)}`.slice(0, 100);
     try {
       await this.env.REVIEW_WORKFLOW.create({
         id: workflowId,
@@ -674,12 +691,12 @@ export class Yard extends DurableObject<Env> {
           taskId: agent.taskId,
           agentId: agent.id,
           forkName: agent.forkName,
-          commit: input.after,
+          commit: head,
           baseCommit: task?.base_commit ?? "",
           jurisdiction: yard.jurisdiction,
         },
       });
-      await this.append({ type: "review.started", taskId: agent.taskId, agentId: agent.id, data: { commit: input.after, workflowId } });
+      await this.append({ type: "review.started", taskId: agent.taskId, agentId: agent.id, data: { commit: head, workflowId } });
     } catch (err) {
       // Duplicate delivery of the same push: the review already exists.
       if (!String(err).toLowerCase().includes("already")) throw err;

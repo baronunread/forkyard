@@ -178,6 +178,7 @@ export async function routeArtifactsEvent(
     emittedAt: ev.metadata?.emittedAt ?? null,
     startReview,
   });
+  if (ev.payload.ref !== `refs/heads/${yard.defaultBranch}`) return null;
   return {
     kind: "forkyard",
     yardId: yard.id,

@@ -106,6 +106,8 @@ interface Script {
   harness: string;
   claims: string[];
   intent: { summary: string; why: string; details?: string };
+  /** "mcp" (default): call intent_record. "git": only commit .forkyard/intent.md. */
+  intentVia?: "mcp" | "git";
   steps: Step[];
 }
 
@@ -247,6 +249,7 @@ returns the existing todo instead of creating a duplicate.
   {
     name: "Dex",
     harness: "aider",
+    intentVia: "git",
     claims: ["docs/**", "README.md"],
     intent: {
       summary: "Document the API and its errors",
@@ -267,7 +270,10 @@ returns the existing todo instead of creating a duplicate.
 
 Titles are 1–120 characters after trimming.
 `,
-          ".forkyard/intent.md": intentMd("Document the API and its errors", "Clients need the contract."),
+          ".forkyard/intent.md": intentMd(
+            "Document the API and its errors",
+            "Whatever validation ships, clients need to know the contract: status codes, error shape and limits.",
+          ),
         },
       },
       {
@@ -332,8 +338,12 @@ async function main() {
       const claim = await mcp.call<{ overlaps: { path: string; agents: string[] }[] }>("claim_paths", { paths: script.claims });
       log(script.name, `claimed ${script.claims.join(", ")}${claim.data.overlaps.length ? `  ⚠ overlaps: ${claim.data.overlaps.map((o) => o.path).join(", ")}` : ""}`);
       await beat(700);
-      await mcp.call("intent_record", script.intent);
-      log(script.name, `intent: ${script.intent.summary}`);
+      if (script.intentVia === "git") {
+        log(script.name, `intent travels in .forkyard/intent.md: ${script.intent.summary}`);
+      } else {
+        await mcp.call("intent_record", script.intent);
+        log(script.name, `intent: ${script.intent.summary}`);
+      }
       for (const step of script.steps) {
         await beat(step.wait);
         for (const [path, contents] of Object.entries(step.files)) await git.write(path, contents);
