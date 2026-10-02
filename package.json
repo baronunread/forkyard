@@ -1,0 +1,31 @@
+{
+  "name": "forkyard",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent-native Git platform on Cloudflare: many agents, one codebase, forks compared side by side.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @forkyard/shared build && concurrently -k -n worker,web -c yellow,cyan \"pnpm --filter @forkyard/worker dev\" \"pnpm --filter @forkyard/web dev\"",
+    "build": "pnpm --filter @forkyard/shared build && pnpm --filter @forkyard/web build",
+    "deploy": "pnpm build && pnpm --filter @forkyard/worker run deploy",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:migrate:local": "pnpm --filter @forkyard/worker db:migrate:local",
+    "db:migrate:remote": "pnpm --filter @forkyard/worker db:migrate:remote",
+    "seed": "tsx scripts/seed.ts",
+    "bench:fork": "tsx scripts/bench-fork.ts",
+    "bench:events": "tsx scripts/bench-events.ts",
+    "e2e": "tsx scripts/e2e.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "concurrently": "^9.2.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
