@@ -59,10 +59,6 @@ export const YardEvent = z.discriminatedUnion("type", [
   ev("decision.made", z.object({ decision: Decision })),
   ev("task.abandoned", z.object({ reason: z.string() })),
   ev("fork.deleted", z.object({ forkName: z.string() })),
-  ev(
-    "k2.observed",
-    z.object({ originalSeq: z.number(), latencyMs: z.number(), producedAt: z.string() }),
-  ),
 ]);
 export type YardEvent = z.infer<typeof YardEvent>;
 export type YardEventType = YardEvent["type"];
@@ -127,7 +123,5 @@ export function describeEvent(e: YardEvent, agentName: (id: string | null) => st
       return `task abandoned: ${e.data.reason}`;
     case "fork.deleted":
       return `fork ${e.data.forkName} deleted`;
-    case "k2.observed":
-      return `K2 delivered event #${e.data.originalSeq} after ${e.data.latencyMs} ms`;
   }
 }

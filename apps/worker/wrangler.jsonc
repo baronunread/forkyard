@@ -1,0 +1,82 @@
+{
+  // Top level = local development (`pnpm dev`): Artifacts is emulated by the
+  // LocalArtifacts Durable Object, so no Cloudflare account is needed.
+  // `env.production` = the real deployment (`pnpm deploy`).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "forkyard",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/mcp", "/git/*", "/llms.txt", "/AGENTS.md", "/healthz"]
+  },
+  "vars": {
+    "ARTIFACTS_MODE": "local",
+    "ARTIFACTS_NAMESPACE": "local",
+    "LOCAL_GIT_ORIGIN": "http://localhost:8787",
+    "FORK_TTL_HOURS": "24",
+    "TOKEN_TTL_SECONDS": "14400"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "forkyard", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "YARD", "class_name": "Yard" },
+      { "name": "ARTIFACTS_EMULATOR", "class_name": "LocalArtifacts" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Yard", "LocalArtifacts"] }],
+  "queues": {
+    "producers": [{ "binding": "ARTIFACT_EVENTS", "queue": "forkyard-artifact-events" }],
+    // Batch size 1: a push is delivered as soon as it arrives (live path latency).
+    "consumers": [{ "queue": "forkyard-artifact-events", "max_batch_size": 1, "max_retries": 5 }]
+  },
+  "workflows": [{ "name": "forkyard-review", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" }],
+  "triggers": { "crons": ["17 * * * *"] },
+
+  "env": {
+    "production": {
+      "name": "forkyard",
+      "vars": {
+        "ARTIFACTS_MODE": "remote",
+        "ARTIFACTS_NAMESPACE": "forkyard",
+        "FORK_TTL_HOURS": "24",
+        "TOKEN_TTL_SECONDS": "14400",
+        "REVIEW_MODEL": "@cf/moonshotai/kimi-k2.7-code"
+        // Secrets (wrangler secret put --env production):
+        //   FORKYARD_ADMIN_KEY            admin/orchestrator key
+        //   ACCESS_TEAM_DOMAIN, ACCESS_AUD  Cloudflare Access for humans
+        //   K2_API_TOKEN                  only for the K2 spike consumer
+      },
+      "artifacts": [
+        { "binding": "ARTIFACTS", "namespace": "forkyard" }
+        // EU yards: create an EU-jurisdiction namespace and uncomment.
+        // { "binding": "ARTIFACTS_EU", "namespace": "forkyard-eu" }
+      ],
+      "ai": { "binding": "AI" },
+      "d1_databases": [
+        { "binding": "DB", "database_name": "forkyard", "database_id": "REPLACE_WITH_D1_DATABASE_ID", "migrations_dir": "migrations" }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "YARD", "class_name": "Yard" },
+          { "name": "ARTIFACTS_EMULATOR", "class_name": "LocalArtifacts" }
+        ]
+      },
+      "queues": {
+        "producers": [{ "binding": "ARTIFACT_EVENTS", "queue": "forkyard-artifact-events" }],
+        "consumers": [{ "queue": "forkyard-artifact-events", "max_batch_size": 1, "max_retries": 5 }]
+      },
+      "workflows": [{ "name": "forkyard-review", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" }],
+      "triggers": { "crons": ["17 * * * *"] }
+      // K2 spike (see docs/decisions/events.md): create a stream and uncomment.
+      // "k2": [{ "binding": "EVENTS_K2", "stream": "<STREAM_ID>" }],
+      // plus vars K2_STREAM_ID and K2_SUBSCRIPTION_ID.
+    }
+  }
+}

@@ -44,7 +44,7 @@ export function baseRange(h: Hunk): [number, number] {
 function rangesConflict(a: Hunk, b: Hunk): boolean {
   const [as, ae] = baseRange(a);
   const [bs, be] = baseRange(b);
-  if (as === ae && bs === be) return as === bs; // two insertions at the same point
+  if (as === ae && bs === be) return false; // insertions at the same point stack in selection order
   if (as === ae) return as > bs && as < be; // insertion strictly inside a replaced range
   if (bs === be) return bs > as && bs < ae;
   return as < be && bs < ae;
@@ -67,12 +67,14 @@ export interface ApplyResult {
 
 /**
  * Apply hunks (possibly from different agents) to a base text. Identical
- * edits from different agents are de-duplicated; overlapping different edits
- * are reported as conflicts and the later one is skipped.
+ * edits from different agents are de-duplicated; pure insertions at the same
+ * point are stacked in selection order; overlapping replacements are
+ * reported as conflicts and the later one is skipped.
  */
 export function applyHunks(base: string, hunks: TaggedHunk[]): ApplyResult {
   const lines = splitLines(base);
   const trailing = base === "" || base.endsWith("\n");
+  const order = new Map(hunks.map((h, i) => [h, i]));
   const sorted = [...hunks].sort(
     (x, y) => baseRange(x.hunk)[0] - baseRange(y.hunk)[0] || x.hunk.oldLines - y.hunk.oldLines,
   );
@@ -88,9 +90,13 @@ export function applyHunks(base: string, hunks: TaggedHunk[]): ApplyResult {
     }
     accepted.push(h);
   }
-  // Apply bottom-up so earlier offsets stay valid.
+  // Apply bottom-up so earlier offsets stay valid. At the same point, apply
+  // later selections first so earlier selections end up on top.
   const out = [...lines];
-  for (const { hunk } of [...accepted].sort((x, y) => baseRange(y.hunk)[0] - baseRange(x.hunk)[0])) {
+  const bottomUp = [...accepted].sort(
+    (x, y) => baseRange(y.hunk)[0] - baseRange(x.hunk)[0] || y.hunk.oldLines - x.hunk.oldLines || order.get(y)! - order.get(x)!,
+  );
+  for (const { hunk } of bottomUp) {
     const [start, end] = baseRange(hunk);
     const added = hunk.lines.filter((l) => l.startsWith("+")).map((l) => l.slice(1));
     out.splice(start, end - start, ...added);

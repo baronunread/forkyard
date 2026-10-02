@@ -40,6 +40,17 @@ describe("applyHunks", () => {
     expect(r.ok).toBe(false);
     expect(r.conflicts).toHaveLength(1);
   });
+  it("stacks insertions at the same point in selection order", () => {
+    const a = hunks("f", base, "one\nA\ntwo\nthree\nfour\nfive\n").map((hunk) => ({ agentId: "a", hunk }));
+    const b = hunks("f", base, "one\nB\ntwo\nthree\nfour\nfive\n").map((hunk) => ({ agentId: "b", hunk }));
+    expect(applyHunks(base, [...a, ...b]).text).toBe("one\nA\nB\ntwo\nthree\nfour\nfive\n");
+    expect(applyHunks(base, [...b, ...a]).text).toBe("one\nB\nA\ntwo\nthree\nfour\nfive\n");
+  });
+  it("still conflicts when an insertion lands inside a replaced range", () => {
+    const a = hunks("f", base, "one\nTWO\nTHREE\nfour\nfive\n").map((hunk) => ({ agentId: "a", hunk }));
+    const b = hunks("f", base, "one\ntwo\nX\nthree\nfour\nfive\n").map((hunk) => ({ agentId: "b", hunk }));
+    expect(applyHunks(base, [...a, ...b]).ok).toBe(false);
+  });
   it("dedupes identical edits", () => {
     const a = hunks("f", base, "one\nTWO\nthree\nfour\nfive\n");
     const r = applyHunks(base, [...a.map((hunk) => ({ agentId: "a", hunk })), ...a.map((hunk) => ({ agentId: "b", hunk }))]);

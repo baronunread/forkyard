@@ -1,0 +1,37 @@
+{
+  "name": "@forkyard/worker",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./app": "./src/app-type.ts"
+  },
+  "scripts": {
+    "dev": "wrangler dev --port 8787 --persist-to ../../.wrangler/state",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "types": "wrangler types --env-interface CloudflareEnv src/worker-configuration.d.ts",
+    "db:migrate:local": "wrangler d1 migrations apply forkyard --local --persist-to ../../.wrangler/state",
+    "db:migrate:remote": "wrangler d1 migrations apply forkyard --remote"
+  },
+  "dependencies": {
+    "@forkyard/shared": "workspace:*",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "^0.24.0",
+    "diff": "^9.0.0",
+    "hono": "^4.13.0",
+    "jose": "^6.1.0",
+    "pako": "^3.0.2",
+    "zod": "^4.1.0",
+    "@hono/zod-validator": "^0.9.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261002.1",
+    "@types/pako": "^3.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.146.0"
+  }
+}
