@@ -1,15 +1,17 @@
-import { McpServer } from "@modelcontextprotocol/server";
+import { StreamableHTTPTransport } from "@hono/mcp";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ClaimInput, CreateTaskInput, CreateYardInput, DecideInput, describeEvent, IntentInput, MCP_TOOLS } from "@forkyard/shared";
-import { createMcpHandler } from "agents/mcp";
+import type { Context } from "hono";
 import { z } from "zod";
 import type { Principal } from "./auth";
 import type { Env } from "./env";
 import * as svc from "./service";
 
 /**
- * MCP server for agents (streamable HTTP, stateless). Live state is in the
- * Yard Durable Object, so the MCP layer needs no session object of its own:
- * `createMcpHandler` from `agents/mcp` builds a fresh server per request.
+ * MCP server for agents: streamable HTTP via `@hono/mcp`, mounted as a plain
+ * Hono route so it shares the API's auth middleware. Stateless — live state
+ * is in the Yard Durable Object — so each request gets a fresh server and a
+ * session-less transport.
  *
  * With an agent key, yard/task/agent ids default to the key's scope, so a
  * coding agent can call `workspace_get` with no arguments.
@@ -260,8 +262,10 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
   return server;
 }
 
-export function mcpFetch(env: Env, p: Principal, request: Request, ctx: ExecutionContext): Promise<Response> {
-  const origin = new URL(request.url).origin;
-  const handler = createMcpHandler(() => buildMcpServer(env, p, origin), { route: "/mcp" });
-  return handler(request, env, ctx);
+export async function handleMcp(c: Context<{ Bindings: Env; Variables: { principal: Principal } }>): Promise<Response> {
+  const server = buildMcpServer(c.env, c.get("principal"), new URL(c.req.url).origin);
+  const transport = new StreamableHTTPTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+  await server.connect(transport);
+  const res = await transport.handleRequest(c);
+  return res ?? c.body(null, 202);
 }

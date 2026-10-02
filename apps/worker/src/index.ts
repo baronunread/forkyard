@@ -4,7 +4,7 @@ import { api, type HonoEnv } from "./api";
 import { assertYard, authenticate } from "./auth";
 import { getYard } from "./db";
 import { num, type Env } from "./env";
-import { mcpFetch } from "./mcp";
+import { handleMcp } from "./mcp";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
 import { cleanupForks, toServiceError } from "./service";
 import { yardStub } from "./yard";
@@ -61,8 +61,8 @@ app.get("/api/openapi.json", (c) => c.json(routeTable(new URL(c.req.url).origin)
 app.route("/api", api);
 
 app.all("/mcp", async (c) => {
-  const p = await authenticate(c.env, c.req.raw);
-  return mcpFetch(c.env, p, c.req.raw, c.executionCtx as ExecutionContext);
+  c.set("principal", await authenticate(c.env, c.req.raw));
+  return handleMcp(c);
 });
 
 app.get("/llms.txt", (c) => c.text(llmsTxt(new URL(c.req.url).origin)));

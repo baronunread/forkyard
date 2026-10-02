@@ -5,7 +5,7 @@ Several products Forkyard uses are in beta. The build environment could not reac
 - `@cloudflare/workers-types@5.20261002.1` — the `Artifacts` / `ArtifactsRepo` binding interfaces
 - `wrangler@4.146.0` — config schema (`artifacts`, `k2`, `triggers.events`), queue event-subscription commands
 - `miniflare` — which bindings have local simulators
-- `agents@0.24.0`, `@modelcontextprotocol/server@2.0.0` — MCP server APIs
+- `@hono/mcp@0.3.2`, `@modelcontextprotocol/sdk@1.31` — MCP server APIs
 - `@cloudflare/kumo@2.14.0` (its `kumo doc` CLI), `@pierre/diffs@1.5.1`, `@pierre/trees@1.0.0-beta.6` (pinned)
 
 ## Artifacts binding
@@ -28,7 +28,7 @@ Workers Builds connects **one** Artifacts repo per Worker, deploys `main` and bu
 
 ## MCP
 
-`agents/mcp` exposes `createMcpHandler(factory)`, a **stateless** streamable-HTTP handler built on `@modelcontextprotocol/server` v2. Forkyard's live state already lives in the Yard Durable Object, so a per-session `McpAgent` DO would only add a second source of truth; the stateless handler builds a fresh server per request with the caller's principal.
+The MCP endpoint uses [`@hono/mcp`](https://github.com/honojs/middleware/tree/main/packages/mcp)'s `StreamableHTTPTransport` with the MCP SDK's `McpServer`, mounted as an ordinary Hono route so it shares the API's auth. It runs stateless (no session ids): live state is in the Yard Durable Object, so each request builds a fresh server for the caller's principal. (Cloudflare's `agents` package was the other option; `McpAgent` adds a Durable Object per session, which would be a second source of truth here.)
 
 ## Local development
 

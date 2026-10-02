@@ -70,7 +70,7 @@ flowchart LR
 
   subgraph worker ["Forkyard Worker (Hono)"]
     rest["/api — REST<br/>(typed via hono/client)"]
-    mcp["/mcp — MCP<br/>(streamable HTTP)"]
+    mcp["/mcp — MCP via @hono/mcp<br/>(streamable HTTP)"]
     qc["queue consumer"]
     cron["cron: fork cleanup"]
   end
