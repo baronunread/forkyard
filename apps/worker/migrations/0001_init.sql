@@ -118,33 +118,52 @@ CREATE TABLE bench_runs (
   created_at TEXT NOT NULL
 );
 
--- People sign in with GitHub or Google; yards belong to their members.
+-- Accounts: Better Auth (people sign in with GitHub or Google; agents get OAuth
+-- tokens through the MCP plugin). Generated with better-auth/db/migration for
+-- the plugins in src/better-auth.ts: jwt + @better-auth/mcp.
 
-CREATE TABLE users (
-  id TEXT PRIMARY KEY,
-  email TEXT,
-  name TEXT NOT NULL,
-  avatar_url TEXT,
-  created_at TEXT NOT NULL
-);
+create table "user" ("id" text not null primary key, "name" text not null, "email" text not null unique, "emailVerified" integer not null, "image" text, "createdAt" date not null, "updatedAt" date not null);
+create table "session" ("id" text not null primary key, "expiresAt" date not null, "token" text not null unique, "createdAt" date not null, "updatedAt" date not null, "ipAddress" text, "userAgent" text, "userId" text not null references "user" ("id") on delete cascade);
+create table "account" ("id" text not null primary key, "accountId" text not null, "providerId" text not null, "userId" text not null references "user" ("id") on delete cascade, "accessToken" text, "refreshToken" text, "idToken" text, "accessTokenExpiresAt" date, "refreshTokenExpiresAt" date, "scope" text, "password" text, "createdAt" date not null, "updatedAt" date not null);
+create table "verification" ("id" text not null primary key, "identifier" text not null, "value" text not null, "expiresAt" date not null, "createdAt" date not null, "updatedAt" date not null);
+create table "jwks" ("id" text not null primary key, "publicKey" text not null, "privateKey" text not null, "createdAt" date not null, "expiresAt" date, "alg" text, "crv" text);
+create table "oauthClient" ("id" text not null primary key, "clientId" text not null unique, "clientSecret" text, "clientDiscoveryId" text, "disabled" integer, "skipConsent" integer, "enableEndSession" integer, "subjectType" text, "scopes" text, "clientCredentialsScopes" text, "userId" text references "user" ("id") on delete cascade, "createdAt" date, "updatedAt" date, "name" text, "uri" text, "icon" text, "contacts" text, "tos" text, "policy" text, "softwareId" text, "softwareVersion" text, "softwareStatement" text, "redirectUris" text not null, "postLogoutRedirectUris" text, "backchannelLogoutUri" text, "backchannelLogoutSessionRequired" integer, "tokenEndpointAuthMethod" text, "applicationType" text, "jwks" text, "jwksUri" text, "grantTypes" text, "responseTypes" text, "requirePKCE" integer, "dpopBoundAccessTokens" integer, "referenceId" text, "metadata" text);
+create table "oauthResource" ("id" text not null primary key, "identifier" text not null unique, "name" text not null, "accessTokenTtl" integer, "refreshTokenTtl" integer, "signingAlgorithm" text, "signingKeyId" text, "allowedScopes" text, "customClaims" text, "dpopBoundAccessTokensRequired" integer, "disabled" integer, "createdAt" date, "updatedAt" date, "policyVersion" integer, "metadata" text);
+create table "oauthClientResource" ("id" text not null primary key, "clientId" text not null references "oauthClient" ("clientId") on delete cascade, "resourceId" text not null references "oauthResource" ("identifier") on delete cascade, "metadata" text, "createdAt" date);
+create table "oauthRefreshToken" ("id" text not null primary key, "token" text not null unique, "clientId" text not null references "oauthClient" ("clientId") on delete cascade, "sessionId" text references "session" ("id") on delete set null, "userId" text not null references "user" ("id") on delete cascade, "referenceId" text, "authorizationCodeId" text, "resources" text, "requestedUserInfoClaims" text, "expiresAt" date not null, "createdAt" date not null, "revoked" date, "rotatedAt" date, "rotationReplayResponse" text, "rotationReplayExpiresAt" date, "authTime" date, "confirmation" text, "scopes" text not null);
+create table "oauthAccessToken" ("id" text not null primary key, "token" text not null unique, "clientId" text not null references "oauthClient" ("clientId") on delete cascade, "sessionId" text references "session" ("id") on delete set null, "userId" text references "user" ("id") on delete cascade, "referenceId" text, "authorizationCodeId" text, "resources" text, "requestedUserInfoClaims" text, "refreshId" text references "oauthRefreshToken" ("id") on delete cascade, "expiresAt" date not null, "createdAt" date not null, "revoked" date, "confirmation" text, "scopes" text not null);
+create table "oauthConsent" ("id" text not null primary key, "clientId" text not null references "oauthClient" ("clientId") on delete cascade, "userId" text references "user" ("id") on delete cascade, "referenceId" text, "resources" text, "requestedUserInfoClaims" text, "scopes" text not null, "createdAt" date not null, "updatedAt" date not null);
+create table "oauthClientAssertion" ("id" text not null primary key, "expiresAt" date not null);
+create index "session_userId_idx" on "session" ("userId");
+create index "account_userId_idx" on "account" ("userId");
+create index "verification_identifier_idx" on "verification" ("identifier");
+create index "oauthClient_userId_idx" on "oauthClient" ("userId");
+create index "oauthClientResource_clientId_idx" on "oauthClientResource" ("clientId");
+create index "oauthClientResource_resourceId_idx" on "oauthClientResource" ("resourceId");
+create index "oauthRefreshToken_clientId_idx" on "oauthRefreshToken" ("clientId");
+create index "oauthRefreshToken_sessionId_idx" on "oauthRefreshToken" ("sessionId");
+create index "oauthRefreshToken_userId_idx" on "oauthRefreshToken" ("userId");
+create index "oauthRefreshToken_authorizationCodeId_idx" on "oauthRefreshToken" ("authorizationCodeId");
+create index "oauthAccessToken_clientId_idx" on "oauthAccessToken" ("clientId");
+create index "oauthAccessToken_sessionId_idx" on "oauthAccessToken" ("sessionId");
+create index "oauthAccessToken_userId_idx" on "oauthAccessToken" ("userId");
+create index "oauthAccessToken_authorizationCodeId_idx" on "oauthAccessToken" ("authorizationCodeId");
+create index "oauthAccessToken_refreshId_idx" on "oauthAccessToken" ("refreshId");
+create index "oauthConsent_clientId_idx" on "oauthConsent" ("clientId");
+create index "oauthConsent_userId_idx" on "oauthConsent" ("userId");
+create unique index "oauthClientResource_clientId_resourceId_uidx" on "oauthClientResource" ("clientId", "resourceId");
 
-CREATE TABLE accounts (
-  provider TEXT NOT NULL,
-  provider_user_id TEXT NOT NULL,
-  user_id TEXT NOT NULL REFERENCES users(id),
+-- What a person picked on /connect for an agent client: "me" or yard/task/agent.
+-- Read when the OAuth grant is made (it becomes the grant's reference id).
+CREATE TABLE oauth_seat_choices (
+  session_id TEXT NOT NULL,
+  client_id TEXT NOT NULL,
+  seat TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  PRIMARY KEY (provider, provider_user_id)
+  PRIMARY KEY (session_id, client_id)
 );
-CREATE INDEX accounts_user ON accounts (user_id);
 
-CREATE TABLE sessions (
-  id_hash TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL
-);
-CREATE INDEX sessions_user ON sessions (user_id);
-
+-- Yards belong to their members.
 CREATE TABLE yard_members (
   yard_id TEXT NOT NULL,
   user_id TEXT NOT NULL,

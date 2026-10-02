@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { call, client, type Me } from "./api";
+import { authClient } from "./auth-client";
 
 type User = NonNullable<Me["user"]>;
 type State = { status: "loading" } | { status: "signed-out"; dev: boolean } | { status: "signed-in"; user: User; dev: boolean };
 
 const Ctx = createContext<{ state: State; signOut: () => Promise<void>; refresh: () => void } | null>(null);
 
-/** Every screen except /login needs a signed-in person (GitHub, Google, or the dev user locally). */
+/** Every screen except /login needs a signed-in person (GitHub or Google; emulated locally). */
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>({ status: "loading" });
   const [tick, setTick] = useState(0);
@@ -16,7 +17,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       .catch(() => setState({ status: "signed-out", dev: false }));
   }, [tick]);
   const signOut = useCallback(async () => {
-    await fetch("/auth/logout", { method: "POST" });
+    await authClient.signOut();
     setState({ status: "signed-out", dev: state.status !== "loading" && state.dev });
     location.href = "/login";
   }, [state]);

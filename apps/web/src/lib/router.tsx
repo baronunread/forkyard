@@ -6,13 +6,15 @@ export type Route =
   | { name: "yard"; yard: string }
   | { name: "task"; yard: string; task: string; agent?: string; file?: string }
   | { name: "bench" }
-  | { name: "login" };
+  | { name: "login" }
+  | { name: "connect" };
 
 export function parse(pathname: string, search = ""): Route {
   const q = new URLSearchParams(search);
   const parts = pathname.split("/").filter(Boolean).map(decodeURIComponent);
   if (parts[0] === "bench") return { name: "bench" };
   if (parts[0] === "login") return { name: "login" };
+  if (parts[0] === "connect") return { name: "connect" };
   if (parts[0] === "y" && parts[1] && parts[2] === "t" && parts[3])
     return { name: "task", yard: parts[1], task: parts[3], agent: q.get("agent") ?? undefined, file: q.get("file") ?? undefined };
   if (parts[0] === "y" && parts[1]) return { name: "yard", yard: parts[1] };
@@ -27,6 +29,8 @@ export function href(r: Route): string {
       return "/bench";
     case "login":
       return "/login";
+    case "connect":
+      return "/connect";
     case "yard":
       return `/y/${encodeURIComponent(r.yard)}`;
     case "task": {

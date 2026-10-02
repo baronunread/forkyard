@@ -1,28 +1,23 @@
+import { ME, origin, sessionFor, verifyAccessToken } from "./better-auth";
 import { sha256Hex } from "./db";
 import type { Env } from "./env";
 
 /**
  * Who is calling.
  *
- * - `user`: a person signed in with GitHub or Google (session cookie), or an
- *   agent that a person authorized over OAuth to act *as them*. Sees and acts
- *   on the yards they are a member of.
- * - `agent`: one agent seat on one task — an OAuth token bound to that seat on
- *   the consent screen, or a per-agent `fy_` key minted at fan-out. `judge`
- *   seats may also decide their task.
+ * - `user`: a person signed in with GitHub or Google (Better Auth session),
+ *   or an agent they authorized over OAuth to act *as them*. Sees and acts on
+ *   the yards they are a member of.
+ * - `agent`: one agent seat on one task: an OAuth token bound to that seat on
+ *   /connect, or a per-agent `fy_` key minted at fan-out. `judge` seats may
+ *   also decide their task.
  * - `admin`: the operator (`FORKYARD_ADMIN_KEY`) for scripts and benchmarks.
- *   In local dev with nothing configured, anonymous requests are admin.
+ *   With FORKYARD_DEV=true (local only), anonymous requests are admin too.
  */
 export type Principal =
   | { kind: "admin"; via: "admin-key" | "dev"; label: string }
   | { kind: "user"; userId: string; label: string; via: "session" | "oauth" }
   | { kind: "agent"; yardId: string; taskId: string; agentId: string; role: "agent" | "judge"; label: string; userId?: string };
-
-/** What an OAuth grant (or a resolved external token) carries in `ctx.props`. */
-export type GrantProps =
-  | { kind: "user"; userId: string }
-  | { kind: "agent"; userId?: string; yardId: string; taskId: string; agentId: string; role: "agent" | "judge" }
-  | { kind: "admin" };
 
 export class AuthError extends Error {
   constructor(
@@ -33,78 +28,62 @@ export class AuthError extends Error {
   }
 }
 
-export const SESSION_COOKIE = "fy_session";
-
-export function socialProviders(env: Env): ("github" | "google")[] {
-  const out: ("github" | "google")[] = [];
-  if (env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET) out.push("github");
-  if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) out.push("google");
-  return out;
-}
-
-/** Local development with no sign-in configured: anonymous calls are admin and "continue as dev user" exists. */
+/** Local development: anonymous calls (the seed, bench and e2e scripts) act as admin. */
 export function devMode(env: Env): boolean {
-  return env.FORKYARD_DEV === "true" || (!env.FORKYARD_ADMIN_KEY && socialProviders(env).length === 0);
+  return env.FORKYARD_DEV === "true";
 }
 
-export function principalFromProps(props: GrantProps | undefined | null): Principal | null {
-  if (!props) return null;
-  if (props.kind === "admin") return { kind: "admin", via: "admin-key", label: "admin-key" };
-  if (props.kind === "user") return { kind: "user", userId: props.userId, label: `user:${props.userId}`, via: "oauth" };
-  return {
-    kind: "agent",
-    yardId: props.yardId,
-    taskId: props.taskId,
-    agentId: props.agentId,
-    role: props.role,
-    userId: props.userId,
-    label: `agent:${props.yardId}/${props.taskId}/${props.agentId}`,
-  };
-}
+const agentPrincipal = (yardId: string, taskId: string, agentId: string, role: string, userId?: string): Principal => ({
+  kind: "agent",
+  yardId,
+  taskId,
+  agentId,
+  role: role === "judge" ? "judge" : "agent",
+  userId,
+  label: `agent:${yardId}/${taskId}/${agentId}`,
+});
 
-/** Resolve a bearer credential that is not an OAuth token: agent keys and the admin key. */
-export async function propsForKey(env: Env, key: string): Promise<GrantProps | null> {
-  if (key.startsWith("fy_")) {
+/**
+ * A bearer credential: a per-agent `fy_` key, the admin key, or an OAuth
+ * access token issued by the MCP authorization server (its `seat` claim says
+ * whether it acts as the person or as one agent seat).
+ */
+export async function principalForToken(env: Env, origin: string, token: string): Promise<Principal | null> {
+  if (token.startsWith("fy_")) {
     const row = await env.DB.prepare("SELECT * FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL")
-      .bind(await sha256Hex(key))
+      .bind(await sha256Hex(token))
       .first<{ yard_id: string; task_id: string; agent_id: string; role: string }>();
-    if (!row) return null;
-    return { kind: "agent", yardId: row.yard_id, taskId: row.task_id, agentId: row.agent_id, role: row.role === "judge" ? "judge" : "agent" };
+    return row ? agentPrincipal(row.yard_id, row.task_id, row.agent_id, row.role) : null;
   }
-  if (env.FORKYARD_ADMIN_KEY && timingSafeEqual(key, env.FORKYARD_ADMIN_KEY)) return { kind: "admin" };
-  return null;
+  if (env.FORKYARD_ADMIN_KEY && timingSafeEqual(token, env.FORKYARD_ADMIN_KEY)) return { kind: "admin", via: "admin-key", label: "admin-key" };
+
+  const claims = await verifyAccessToken(env, origin, token);
+  if (!claims?.sub) return null;
+  const seat = claims.seat ?? ME;
+  if (seat === ME) return { kind: "user", userId: claims.sub, label: `user:${claims.sub}`, via: "oauth" };
+  const [yardId, taskId, agentId] = seat.split("/");
+  if (!yardId || !taskId || !agentId || !(await isMember(env, claims.sub, yardId))) return null;
+  const a = await env.DB.prepare("SELECT role FROM agents WHERE yard_id = ? AND task_id = ? AND id = ?").bind(yardId, taskId, agentId).first<{ role: string }>();
+  return a ? agentPrincipal(yardId, taskId, agentId, a.role, claims.sub) : null;
 }
 
-export function readCookie(req: Request, name: string): string | null {
-  const raw = req.headers.get("Cookie") ?? "";
-  for (const part of raw.split(/;\s*/)) {
-    const i = part.indexOf("=");
-    if (i > 0 && part.slice(0, i) === name) return decodeURIComponent(part.slice(i + 1));
-  }
-  return null;
-}
-
-export async function sessionUser(env: Env, req: Request): Promise<string | null> {
-  const token = readCookie(req, SESSION_COOKIE);
-  if (!token) return null;
-  const row = await env.DB.prepare("SELECT user_id FROM sessions WHERE id_hash = ? AND expires_at > ?")
-    .bind(await sha256Hex(token), new Date().toISOString())
-    .first<{ user_id: string }>();
-  return row?.user_id ?? null;
-}
-
-/** Authenticate a REST / WebSocket request: bearer key, then session cookie, then dev mode. */
-export async function authenticate(env: Env, req: Request): Promise<Principal> {
-  const url = new URL(req.url);
+export function bearer(req: Request): string | null {
   const header = req.headers.get("Authorization") ?? "";
-  const key = header.startsWith("Bearer ") ? header.slice(7).trim() : (url.searchParams.get("key") ?? "");
-  if (key) {
-    const p = principalFromProps(await propsForKey(env, key));
-    if (!p) throw new AuthError("unknown or revoked key", 401);
+  if (header.startsWith("Bearer ")) return header.slice(7).trim() || null;
+  return new URL(req.url).searchParams.get("key");
+}
+
+/** Authenticate a REST / WebSocket / MCP request: bearer credential, then session cookie, then dev mode. */
+export async function authenticate(env: Env, req: Request): Promise<Principal> {
+  const o = origin(env, req);
+  const token = bearer(req);
+  if (token) {
+    const p = await principalForToken(env, o, token);
+    if (!p) throw new AuthError("unknown, expired or revoked token", 401);
     return p;
   }
-  const userId = await sessionUser(env, req);
-  if (userId) return { kind: "user", userId, label: `user:${userId}`, via: "session" };
+  const session = await sessionFor(env, o, req.headers);
+  if (session) return { kind: "user", userId: session.user.id, label: `user:${session.user.id}`, via: "session" };
   if (devMode(env)) return { kind: "admin", via: "dev", label: "dev" };
   throw new AuthError("sign in required", 401);
 }

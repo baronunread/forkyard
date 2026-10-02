@@ -74,7 +74,7 @@ export function TopBar({ route, onPalette }: { route: Route; onPalette: () => vo
         {user && (
           <DropdownMenu>
             <DropdownMenu.Trigger render={<button aria-label="Account" className="rounded-full" />}>
-              <Avatar name={user.name} url={user.avatarUrl} />
+              <Avatar name={user.name} url={user.image} />
             </DropdownMenu.Trigger>
             <DropdownMenu.Content sideOffset={8} className="min-w-56">
               <DropdownMenu.Label>

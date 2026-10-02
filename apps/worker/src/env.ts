@@ -38,17 +38,18 @@ export interface Env {
   // Static assets
   ASSETS?: Fetcher;
 
-  // Auth: people sign in with GitHub / Google; agents use OAuth (or per-agent keys)
+  // Auth (Better Auth): people sign in with GitHub / Google; agents use OAuth (or per-agent keys)
+  BETTER_AUTH_SECRET?: string;
   FORKYARD_ADMIN_KEY?: string;
-  /** "true" forces dev mode (anonymous admin + dev sign-in) even with providers configured. */
+  /** "true" (local only): anonymous requests act as admin, for the scripts. */
   FORKYARD_DEV?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
-  OAUTH_KV: KVNamespace;
-  /** Injected by @cloudflare/workers-oauth-provider. */
-  OAUTH_PROVIDER: import("@cloudflare/workers-oauth-provider").OAuthHelpers;
+  /** Local only: emulate.dev base URLs that stand in for GitHub and Google. */
+  EMULATE_GITHUB_URL?: string;
+  EMULATE_GOOGLE_URL?: string;
 
   // Tuning
   FORK_TTL_HOURS?: string;

@@ -3,11 +3,13 @@ import { useEffect, useState } from "react";
 import { CommandMenu } from "./components/CommandMenu";
 import { TopBar } from "./components/TopBar";
 import { useCommands } from "./lib/commands";
+import { oauthInFlight } from "./lib/auth-client";
 import { navigate, useRoute } from "./lib/router";
 import { useSession } from "./lib/session";
 import { useTheme } from "./lib/theme";
 import { toasts } from "./lib/toast";
 import { BenchPage } from "./pages/BenchPage";
+import { Connect } from "./pages/Connect";
 import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
 import { TaskPage } from "./pages/TaskPage";
@@ -33,11 +35,10 @@ export function App() {
 
   useEffect(() => {
     if (state.status === "signed-out" && route.name !== "login") navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`, true);
-    if (state.status === "signed-in" && route.name === "login") {
+    // Signed in already: go where you were headed (an agent's sign-in step still shows, to switch accounts).
+    if (state.status === "signed-in" && route.name === "login" && !oauthInFlight()) {
       const next = new URLSearchParams(location.search).get("next") ?? "/";
-      // Server-rendered pages (the agent consent screen) need a real navigation.
-      if (next.startsWith("/authorize")) location.replace(next);
-      else navigate(next.startsWith("/") && !next.startsWith("//") ? next : "/", true);
+      navigate(next.startsWith("/") && !next.startsWith("//") ? next : "/", true);
     }
   }, [state.status, route.name]);
 
@@ -45,6 +46,12 @@ export function App() {
     return (
       <Toasty toastManager={toasts}>
         <Login />
+      </Toasty>
+    );
+  if (route.name === "connect" && state.status === "signed-in")
+    return (
+      <Toasty toastManager={toasts}>
+        <Connect />
       </Toasty>
     );
   if (state.status !== "signed-in")

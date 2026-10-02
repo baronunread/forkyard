@@ -9,9 +9,9 @@ import {
 } from "@forkyard/shared";
 import { Hono } from "hono";
 import { z } from "zod";
-import { authenticate, devMode, type Principal } from "./auth";
+import { AuthError, authenticate, devMode, isMember, type Principal } from "./auth";
+import { ME, origin, recordSeatChoice, sessionFor } from "./better-auth";
 import type { Env } from "./env";
-import { currentUser } from "./social";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
 import * as svc from "./service";
 
@@ -31,13 +31,25 @@ export const api = new Hono<HonoEnv>()
     await next();
   })
   .get("/me", async (c) => {
-    const p = c.get("principal");
+    const session = await sessionFor(c.env, origin(c.env, c.req.raw), c.req.raw.headers);
+    const u = session?.user;
     return c.json({
-      principal: p,
-      user: await currentUser(c.env, c.req.raw),
+      principal: c.get("principal"),
+      user: u ? { id: u.id, name: u.name, email: u.email, image: u.image ?? null } : null,
       devMode: devMode(c.env),
       artifactsMode: c.env.ARTIFACTS_MODE === "local" || !c.env.ARTIFACTS ? "local" : "remote",
     });
+  })
+
+  // ── /connect: what an agent being authorized over OAuth will act as ──
+  .get("/connect/seats", async (c) => c.json({ seats: await seatsFor(c.env, await personOf(c.env, c.req.raw)) }))
+  .post("/connect/seat", zValidator("json", z.object({ clientId: z.string().min(1), seat: z.string().min(1) })), async (c) => {
+    const { clientId, seat } = c.req.valid("json");
+    const session = await sessionFor(c.env, origin(c.env, c.req.raw), c.req.raw.headers);
+    if (!session) throw new AuthError("sign in required", 401);
+    if (seat !== ME && !(await seatsFor(c.env, session.user.id)).some((s) => s.value === seat)) throw new AuthError("that agent seat is not yours to grant", 403);
+    await recordSeatChoice(c.env, session.session.id, clientId, seat);
+    return c.json({ ok: true });
   })
 
   // ── yards ──
@@ -219,3 +231,38 @@ export const api = new Hono<HonoEnv>()
   });
 
 export type ApiType = typeof api;
+
+async function personOf(env: Env, req: Request): Promise<string> {
+  const session = await sessionFor(env, origin(env, req), req.headers);
+  if (!session) throw new AuthError("sign in required", 401);
+  return session.user.id;
+}
+
+export interface Seat {
+  value: string;
+  yard: string;
+  task: string;
+  agent: { id: string; name: string; color: string; initials: string };
+  role: string;
+}
+
+/** Open agent seats in the person's yards, newest task first. */
+async function seatsFor(env: Env, userId: string): Promise<Seat[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT a.yard_id, a.task_id, a.id, a.name, a.role, a.color, a.initials, t.title, y.name AS yard_name FROM agents a
+     JOIN tasks t ON t.yard_id = a.yard_id AND t.id = a.task_id
+     JOIN yards y ON y.id = a.yard_id
+     WHERE t.status = 'open' AND a.status NOT IN ('failed', 'retired')
+     ORDER BY t.created_at DESC, a.created_at LIMIT 200`,
+  ).all<{ yard_id: string; task_id: string; id: string; name: string; role: string; color: string; initials: string; title: string; yard_name: string }>();
+  const allowed = await Promise.all(results.map((r) => isMember(env, userId, r.yard_id)));
+  return results
+    .filter((_, i) => allowed[i])
+    .map((r) => ({
+      value: `${r.yard_id}/${r.task_id}/${r.id}`,
+      yard: r.yard_name,
+      task: r.title,
+      agent: { id: r.id, name: r.name, color: r.color, initials: r.initials },
+      role: r.role,
+    }));
+}

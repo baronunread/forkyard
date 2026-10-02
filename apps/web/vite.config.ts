@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type ProxyOptions } from "vite";
 
 /**
- * Dev: the Worker on :8787 serves the API, MCP, git, sign-in and OAuth. Keep the
+ * Dev: the Worker on :8787 serves the API, Better Auth (/api/auth), MCP and git. Keep the
  * browser's Host (changeOrigin: false) so the Worker's same-origin check and the
  * OAuth issuer both see http://localhost:5173.
  */
@@ -18,9 +18,6 @@ export default defineConfig({
       "/git": worker,
       "/llms.txt": worker,
       "/AGENTS.md": worker,
-      "/auth": worker,
-      "/authorize": worker,
-      "/oauth": worker,
       "/.well-known": worker,
     },
   },

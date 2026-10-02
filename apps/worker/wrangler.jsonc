@@ -12,14 +12,24 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/mcp", "/git/*", "/auth/*", "/authorize", "/oauth/*", "/.well-known/*", "/llms.txt", "/AGENTS.md", "/healthz"]
+    "run_worker_first": ["/api/*", "/mcp", "/git/*", "/.well-known/*", "/llms.txt", "/AGENTS.md", "/healthz"]
   },
   "vars": {
     "ARTIFACTS_MODE": "local",
     "ARTIFACTS_NAMESPACE": "local",
     "LOCAL_GIT_ORIGIN": "http://localhost:8787",
     "FORK_TTL_HOURS": "24",
-    "TOKEN_TTL_SECONDS": "14400"
+    "TOKEN_TTL_SECONDS": "14400",
+    // Local dev only. Sign-in runs against emulate.dev (`pnpm dev` starts it with
+    // emulate.config.yaml), so these are emulator credentials, not real ones.
+    "FORKYARD_DEV": "true",
+    "BETTER_AUTH_SECRET": "local-dev-secret-not-for-production-0123456789",
+    "EMULATE_GITHUB_URL": "http://localhost:4001",
+    "EMULATE_GOOGLE_URL": "http://localhost:4002",
+    "GITHUB_CLIENT_ID": "forkyard-local",
+    "GITHUB_CLIENT_SECRET": "forkyard-local-secret",
+    "GOOGLE_CLIENT_ID": "forkyard-local.apps.googleusercontent.com",
+    "GOOGLE_CLIENT_SECRET": "forkyard-local-secret"
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "forkyard", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
@@ -31,8 +41,6 @@
     ]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Yard", "LocalArtifacts"] }],
-  // OAuth grants, tokens and registered agent clients (@cloudflare/workers-oauth-provider).
-  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "00000000000000000000000000000000" }],
   "queues": {
     "producers": [{ "binding": "ARTIFACT_EVENTS", "queue": "forkyard-artifact-events" }],
     // Batch size 1: a push is delivered as soon as it arrives (live path latency).
@@ -53,8 +61,9 @@
         "REVIEW_MODEL": "@cf/moonshotai/kimi-k2.7-code",
         "PUBLIC_ORIGIN": "https://forkyard.example.com"
         // Secrets (wrangler secret put --env production):
-        //   GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET   GitHub sign-in (callback: <origin>/auth/github/callback)
-        //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in (callback: <origin>/auth/google/callback)
+        //   BETTER_AUTH_SECRET                       signs sessions and OAuth state (openssl rand -base64 32)
+        //   GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET   GitHub sign-in (callback: <origin>/api/auth/callback/github)
+        //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   Google sign-in (callback: <origin>/api/auth/callback/google)
         //   FORKYARD_ADMIN_KEY                       operator key for scripts and benchmarks
         //   K2_API_TOKEN                             only for the K2 spike consumer
       },
@@ -64,7 +73,6 @@
         // { "binding": "ARTIFACTS_EU", "namespace": "forkyard-eu" }
       ],
       "ai": { "binding": "AI" },
-      "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
       "d1_databases": [
         { "binding": "DB", "database_name": "forkyard", "database_id": "REPLACE_WITH_D1_DATABASE_ID", "migrations_dir": "migrations" }
       ],

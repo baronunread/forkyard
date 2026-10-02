@@ -123,16 +123,64 @@ async function main() {
   process.exit(failures ? 1 : 0);
 }
 
-/** MCP OAuth as a real client would do it: register, PKCE, sign in, consent, token, call. */
+/**
+ * Sign-in and MCP OAuth as real clients do them, against emulate.dev: a person
+ * signs in with (emulated) GitHub; an agent registers, gets sent through
+ * /connect where the person picks a seat, and trades the code for a token.
+ */
 async function oauthChecks(probeTask: string) {
-  const providers = await (await fetch(`${BASE}/auth/providers`)).json() as { dev: boolean };
-  if (!providers.dev) {
-    console.log("- skipping OAuth flow (needs dev sign-in)");
+  const providers = (await (await fetch(`${BASE}/api/providers`)).json()) as { providers: string[]; emulated: boolean };
+  if (!providers.emulated || !providers.providers.includes("github")) {
+    console.log("- skipping sign-in and OAuth checks (needs emulate: pnpm emulate)");
     return;
   }
   const challenge = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   check(challenge.status === 401 && (challenge.headers.get("WWW-Authenticate") ?? "").includes("resource_metadata="), "unauthenticated /mcp answers 401 with resource metadata");
-  const asMeta = (await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json()) as { registration_endpoint: string; token_endpoint: string; authorization_endpoint: string };
+
+  // A browser: cookie jar + Origin. Node's fetch sends Sec-Fetch-Mode: cors, so Better Auth
+  // answers redirects as JSON {url} (like it does for the SPA's fetch calls).
+  const jar = new Map<string, string>();
+  const keep = (res: Response) => {
+    for (const c of res.headers.getSetCookie()) {
+      const [kv] = c.split(";");
+      const i = kv!.indexOf("=");
+      jar.set(kv!.slice(0, i), kv!.slice(i + 1));
+    }
+    return res;
+  };
+  const browser = (path: string, init: { method?: string; json?: unknown } = {}) =>
+    fetch(path.startsWith("http") ? path : `${BASE}${path}`, {
+      method: init.method ?? (init.json ? "POST" : "GET"),
+      redirect: "manual",
+      headers: {
+        Cookie: [...jar].filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join("; "),
+        Origin: BASE,
+        ...(init.json ? { "Content-Type": "application/json" } : {}),
+      },
+      body: init.json ? JSON.stringify(init.json) : undefined,
+    }).then(keep);
+  const target = async (res: Response) => res.headers.get("Location") ?? ((await res.json()) as { url?: string; redirect_uri?: string }).url ?? "";
+
+  // 1. A person signs in with GitHub (emulated): pick "ada" on the emulator's page.
+  const start = (await (await browser("/api/auth/sign-in/social", { json: { provider: "github", callbackURL: "/" } })).json()) as { url: string };
+  const gh = new URL(start.url);
+  check(gh.origin !== "https://github.com", `sign-in goes to the GitHub emulator (${gh.origin})`);
+  const picked = await fetch(`${gh.origin}/login/oauth/callback`, {
+    method: "POST",
+    redirect: "manual",
+    body: new URLSearchParams({ login: "ada", redirect_uri: gh.searchParams.get("redirect_uri")!, scope: gh.searchParams.get("scope") ?? "", state: gh.searchParams.get("state")!, client_id: gh.searchParams.get("client_id")! }),
+  });
+  await browser(picked.headers.get("Location")!);
+  const me = (await (await browser("/api/me")).json()) as { user: { name: string; email: string } | null };
+  check(me.user?.email === "ada@forkyard.dev", `signed in with GitHub as ${me.user?.name ?? "nobody"} (Better Auth session)`);
+  // The seeded yard has no owner, and in dev mode such yards are visible to every signed-in person.
+
+  // 2. An agent registers itself (dynamic client registration, loopback redirect).
+  const asMeta = (await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json()) as {
+    registration_endpoint: string;
+    token_endpoint: string;
+    authorization_endpoint: string;
+  };
   const redirect = "http://127.0.0.1:9/callback";
   const reg = (await (
     await fetch(asMeta.registration_endpoint, {
@@ -141,42 +189,22 @@ async function oauthChecks(probeTask: string) {
       body: JSON.stringify({ client_name: "e2e agent", redirect_uris: [redirect], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"] }),
     })
   ).json()) as { client_id: string };
-  check(!!reg.client_id, "dynamic client registration");
+  check(!!reg.client_id, "dynamic client registration (loopback redirect)");
 
-  // A person signs in (dev sign-in stands in for GitHub/Google).
-  const jar = new Map<string, string>();
-  const keep = (res: Response) => {
-    for (const c of res.headers.getSetCookie()) {
-      const [kv] = c.split(";");
-      const i = kv!.indexOf("=");
-      jar.set(kv!.slice(0, i), kv!.slice(i + 1));
-    }
-  };
-  const cookies = () => [...jar].filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join("; ");
-  keep(await fetch(`${BASE}/auth/dev`, { method: "POST", redirect: "manual", headers: { Origin: BASE } }));
-  const me = (await (await fetch(`${BASE}/api/me`, { headers: { Cookie: cookies() } })).json()) as { user: { name: string } | null };
-  check(me.user?.name === "Dev User", "a person is signed in with a session cookie");
-
+  // 3. Authorize → /connect (pick a seat) → consent → code → token.
   const token = async (seat: string) => {
     const verifier = crypto.randomUUID() + crypto.randomUUID();
     const challengeB64 = Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))).toString("base64url");
     const auth = new URL(asMeta.authorization_endpoint);
-    for (const [k, v] of Object.entries({ response_type: "code", client_id: reg.client_id, redirect_uri: redirect, scope: "mcp", state: "s1", code_challenge: challengeB64, code_challenge_method: "S256", resource: `${BASE}/mcp` }))
+    for (const [k, v] of Object.entries({ response_type: "code", client_id: reg.client_id, redirect_uri: redirect, scope: "mcp offline_access", state: "s1", code_challenge: challengeB64, code_challenge_method: "S256", resource: `${BASE}/mcp` }))
       auth.searchParams.set(k, v);
-    const page = await fetch(auth, { headers: { Cookie: cookies() }, redirect: "manual" });
-    keep(page);
-    const html = await page.text();
-    const handle = /name="handle" value="([^"]+)"/.exec(html)?.[1];
-    if (!handle) throw new Error(`no consent page: ${page.status} ${html.slice(0, 200)}`);
-    const form = new URLSearchParams({ handle, decision: "approve", seat });
-    const done = await fetch(auth.origin + auth.pathname, {
-      method: "POST",
-      headers: { Cookie: cookies(), "Content-Type": "application/x-www-form-urlencoded", Origin: BASE },
-      body: form,
-      redirect: "manual",
-    });
-    const code = new URL(done.headers.get("Location") ?? "http://x/").searchParams.get("code");
-    if (!code) throw new Error(`no code: ${done.status} ${await done.text()}`);
+    const connect = new URL(await target(await browser(auth.href)), BASE);
+    if (connect.pathname !== "/connect") throw new Error(`expected /connect, got ${connect.href}`);
+    await browser("/api/connect/seat", { json: { clientId: reg.client_id, seat } });
+    let next = new URL(await target(await browser("/api/auth/oauth2/continue", { json: { postLogin: true, oauth_query: connect.search.slice(1) } })), BASE);
+    if (next.pathname === "/connect") next = new URL(await target(await browser("/api/auth/oauth2/consent", { json: { accept: true, oauth_query: next.search.slice(1) } })), BASE);
+    const code = next.searchParams.get("code");
+    if (!code) throw new Error(`no code: ${next.href}`);
     const tok = (await (
       await fetch(asMeta.token_endpoint, {
         method: "POST",

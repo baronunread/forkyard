@@ -1,12 +1,11 @@
 import { AGENTS_MD_TEMPLATE, llmsTxt, MCP_TOOLS } from "@forkyard/shared";
 import { Hono, type MiddlewareHandler } from "hono";
 import { api, type HonoEnv } from "./api";
-import { assertYard, authenticate, principalFromProps, type GrantProps } from "./auth";
+import { assertYard, authenticate, bearer, principalForToken } from "./auth";
+import { AUTH_BASE_PATH, handleAuth, origin, socialProviders } from "./better-auth";
 import { getYard } from "./db";
 import { num, type Env } from "./env";
 import { handleMcp } from "./mcp";
-import { authorize, oauthProvider } from "./oauth";
-import { origin, social } from "./social";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
 import { cleanupForks, toServiceError } from "./service";
 import { yardStub } from "./yard";
@@ -40,12 +39,14 @@ const sameOrigin: MiddlewareHandler<HonoEnv> = async (c, next) => {
   await next();
 };
 app.use("/api/*", sameOrigin);
-app.use("/auth/*", sameOrigin);
 app.use("/mcp", sameOrigin);
 
-// People: GitHub / Google sign-in. Agents: the OAuth consent screen.
-app.route("/auth", social);
-app.route("/", authorize);
+// Better Auth: GitHub / Google sign-in and sessions for people; the OAuth 2.1
+// authorization server (registration, authorize, token, JWKS) for agents.
+app.on(["GET", "POST"], `${AUTH_BASE_PATH}/*`, (c) => handleAuth(c.env, origin(c.env, c.req.raw), c.req.raw));
+// OAuth discovery: authorization-server and protected-resource metadata, served by the same plugin.
+app.get("/.well-known/*", (c) => handleAuth(c.env, origin(c.env, c.req.raw), c.req.raw));
+app.get("/api/providers", (c) => c.json({ providers: socialProviders(c.env), emulated: !!(c.env.EMULATE_GITHUB_URL || c.env.EMULATE_GOOGLE_URL) }));
 
 // Live updates: UI and agents subscribe to a yard over a hibernatable WebSocket.
 app.get("/api/yards/:yard/ws", async (c) => {
@@ -67,11 +68,16 @@ app.get("/api/yards/:yard/ws", async (c) => {
 app.get("/api/openapi.json", (c) => c.json(routeTable(new URL(c.req.url).origin)));
 app.route("/api", api);
 
-// Only reached through the OAuth provider, which has already validated the bearer token
-// (an OAuth access token, a per-agent key or the admin key) and put the grant in ctx.props.
+// MCP needs a bearer: an OAuth access token, a per-agent key or the admin key. Without one,
+// answer the way MCP clients expect so they start OAuth discovery (RFC 9728).
 app.all("/mcp", async (c) => {
-  const p = principalFromProps((c.executionCtx as ExecutionContext & { props?: GrantProps }).props);
-  if (!p) return c.json({ error: "unauthorized" }, 401);
+  const o = origin(c.env, c.req.raw);
+  const token = bearer(c.req.raw);
+  const p = token ? await principalForToken(c.env, o, token) : null;
+  if (!p) {
+    const challenge = `Bearer resource_metadata="${o}/.well-known/oauth-protected-resource/mcp"${token ? ', error="invalid_token"' : ""}`;
+    return c.json({ jsonrpc: "2.0", error: { code: -32000, message: "unauthorized" }, id: null }, 401, { "WWW-Authenticate": challenge });
+  }
   c.set("principal", p);
   return handleMcp(c);
 });
@@ -96,7 +102,7 @@ app.all("*", async (c) => {
 function routeTable(origin: string) {
   return {
     openapi: "3.1.0",
-    info: { title: "Forkyard", version: "0.1.0", description: "Every MCP tool has a REST twin. Auth: Bearer agent key (fy_...) or admin key." },
+    info: { title: "Forkyard", version: "0.1.0", description: "Every MCP tool has a REST twin. Auth: a session cookie, an OAuth access token, an agent key (fy_...) or the admin key." },
     servers: [{ url: `${origin}/api` }],
     "x-mcp-tools": MCP_TOOLS.map(([name, description]) => ({ name, description })),
     paths: {
@@ -124,14 +130,8 @@ function routeTable(origin: string) {
   };
 }
 
-const handlers = {
-  api: { fetch: (req: Request, env: Env, ctx: ExecutionContext) => app.fetch(req, env, ctx) },
-  web: { fetch: (req: Request, env: Env, ctx: ExecutionContext) => app.fetch(req, env, ctx) },
-};
-
 export default {
-  /** OAuth 2.1 (discovery, registration, token) and bearer checks on /mcp, then the Hono app. */
-  fetch: (req: Request, env: Env, ctx: ExecutionContext) => oauthProvider(origin(env, req), handlers).fetch(req, env, ctx),
+  fetch: app.fetch,
 
   /** Artifacts event subscription → Queue → here → Yard DO (live) + review Workflow. */
   async queue(batch: MessageBatch<ArtifactsPushEvent>, env: Env): Promise<void> {

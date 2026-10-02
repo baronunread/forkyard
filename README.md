@@ -20,18 +20,18 @@ Requirements: Node 22+, pnpm 10, git.
 
 ```sh
 pnpm install
-pnpm dev          # worker (API, MCP, git) on :8787 and the UI on http://localhost:5173
+pnpm dev          # emulated GitHub + Google, the worker (API, MCP, git) on :8787, the UI on http://localhost:5173
 pnpm seed         # in another terminal: a yard, a task, four agents working concurrently
 ```
 
-`pnpm dev` needs **no Cloudflare account**: the Artifacts binding (which has no local simulator) is replaced by a local emulator Durable Object that speaks real git smart HTTP, so the seed's scripted agents — and any real agent — can `git clone` and `git push` against it. Queues, Workflows, D1 and Durable Objects run in `wrangler dev`.
+`pnpm dev` needs **no Cloudflare account and no OAuth apps**. Sign-in runs the real GitHub / Google flow against [emulate.dev](https://emulate.dev) (`emulate.config.yaml` seeds users such as `ada` and `grace@forkyard.dev`; pick one on the emulator's page). And the Artifacts binding (which has no local simulator) is replaced by a local emulator Durable Object that speaks real git smart HTTP, so the seed's scripted agents — and any real agent — can `git clone` and `git push` against it. Queues, Workflows, D1 and Durable Objects run in `wrangler dev`.
 
 Other scripts:
 
 | Command | What it does |
 | --- | --- |
 | `pnpm seed [--pace=fast\|demo\|slow] [--no-decide] [--yard=id]` | Demo story for the video: 4 agents, small commits pushed concurrently, a claim overlap, a change overlap, reviews, and an assembled decision. |
-| `pnpm e2e [--cleanup]` | Runs the seed and asserts 25 things: fan-out, overlaps, git-sourced intents, reviews, decision, MCP tool parity, permissions (agents can't decide, can't touch other tasks, fork tokens can't reach the base repo), and cron cleanup. |
+| `pnpm e2e [--cleanup]` | Runs the seed and asserts 30 things: fan-out, overlaps, git-sourced intents, reviews, decision, MCP tool parity, permissions (agents can't decide, can't touch other tasks, fork tokens can't reach the base repo), GitHub sign-in through emulate, MCP OAuth for both kinds of seat, and cron cleanup. |
 | `pnpm bench:fork [--levels=1,5,20,50 --rounds=3]` | Fork latency at 1/5/20/50 concurrent forks, p50/p95/p99. |
 | `pnpm bench:events [--pushes=20] [--k2]` | `git push` → event on a WebSocket (what the UI sees); optional K2 spike numbers. |
 | `pnpm cleanup [--ttl=0] [--abandon-open=72]` | Delete stale forks (run before Artifacts billing starts on **October 15**). |
@@ -50,8 +50,9 @@ Other scripts:
    npx wrangler queues subscription create forkyard-artifact-events --source artifacts.repo --events pushed
    ```
    The docs show the fully-qualified `cf.artifacts.repo.pushed`, but other builders report that the subscriptions API currently accepts only the bare suffix; if `pushed` is rejected, use `cf.artifacts.repo.pushed`. Either way, messages arrive with `type: "cf.artifacts.repo.pushed"`.
-3. Sign-in and OAuth: create a KV namespace for OAuth grants (`npx wrangler kv namespace create OAUTH_KV`) and put its id in `env.production`; set `PUBLIC_ORIGIN`. Create a GitHub OAuth app and/or a Google OAuth client with callbacks `<origin>/auth/github/callback` and `<origin>/auth/google/callback`, then:
+3. Sign-in and OAuth ([Better Auth](https://www.better-auth.com), tables in D1): set `PUBLIC_ORIGIN` in `env.production`. Create a GitHub OAuth app and/or a Google OAuth client with callbacks `<origin>/api/auth/callback/github` and `<origin>/api/auth/callback/google`, then:
    ```sh
+   openssl rand -base64 32 | npx wrangler secret put BETTER_AUTH_SECRET --env production
    npx wrangler secret put GITHUB_CLIENT_ID --env production      # and GITHUB_CLIENT_SECRET
    npx wrangler secret put GOOGLE_CLIENT_ID --env production      # and GOOGLE_CLIENT_SECRET
    npx wrangler secret put FORKYARD_ADMIN_KEY --env production    # operator key for seed / bench scripts
@@ -116,7 +117,7 @@ flowchart LR
 
 ### For agents
 
-Add `/mcp` to any MCP client (Claude Code, Codex, Cursor, …). It is an OAuth 2.1 protected resource: the client discovers the authorization server, registers itself, and a person signs in and chooses on the consent screen whether the agent acts **as them** (their yards; it can create tasks and decide) or as **one agent seat** on an open task. Headless agents can skip OAuth with the per-agent key handed out when a task is created (`Authorization: Bearer fy_…`). `/llms.txt` and `/AGENTS.md` explain the workflow.
+Add `/mcp` to any MCP client (Claude Code, Codex, Cursor, …). It is an OAuth 2.1 protected resource: the client discovers the authorization server, registers itself, and a person signs in and chooses on the consent screen whether the agent acts **as them** (their yards; it can create tasks and decide) or as **one agent seat** on an open task. The authorization server is Better Auth's MCP plugin (JWT access tokens bound to `<origin>/mcp`). Headless agents can skip OAuth with the per-agent key handed out when a task is created (`Authorization: Bearer fy_…`). `/llms.txt` and `/AGENTS.md` explain the workflow.
 
 | Tool | REST twin |
 | --- | --- |
@@ -137,7 +138,7 @@ When an agent acts as a seat, ids default to that seat, so `workspace_get` takes
 
 ### Accounts
 
-People sign in with **GitHub** or **Google** (sessions in D1, HttpOnly cookie). Yards belong to their members; whoever creates a yard owns it. Locally, with no provider configured, the sign-in page offers **Continue as dev user**, and anonymous requests from scripts act as the operator. `FORKYARD_ADMIN_KEY` is the operator key for the seed and benchmark scripts on a deployment.
+People sign in with **GitHub** or **Google** through [Better Auth](https://www.better-auth.com) (users, accounts and sessions in D1; the same verified email from both providers is one account). Yards belong to their members; whoever creates a yard owns it. Locally both providers are [emulate.dev](https://emulate.dev) emulators, so the sign-in you test is the one you ship; anonymous requests from the scripts act as the operator (`FORKYARD_DEV=true`, local vars only). `FORKYARD_ADMIN_KEY` is the operator key for the seed and benchmark scripts on a deployment.
 
 ### For humans
 

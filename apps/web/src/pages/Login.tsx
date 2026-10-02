@@ -1,17 +1,38 @@
-import { GithubLogo, GoogleLogo, Terminal } from "@phosphor-icons/react";
+import { GithubLogo, GoogleLogo } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { Logo } from "../components/TopBar";
+import { authClient, oauthInFlight } from "../lib/auth-client";
 
-/** Sign in with GitHub or Google. Locally, with no provider configured, a dev user stands in. */
+type Provider = "github" | "google";
+
+/** Sign in with GitHub or Google (Better Auth). Locally both are emulate.dev. */
 export function Login() {
-  const [info, setInfo] = useState<{ providers: string[]; dev: boolean } | null>(null);
-  const next = new URLSearchParams(location.search).get("next") ?? "/";
-  const error = new URLSearchParams(location.search).get("error");
+  const [info, setInfo] = useState<{ providers: Provider[]; emulated: boolean } | null>(null);
+  const [busy, setBusy] = useState<Provider | null>(null);
+  const [failed, setFailed] = useState(false);
+  const q = new URLSearchParams(location.search);
+  const next = q.get("next") ?? "/";
+  const forAgent = oauthInFlight();
   useEffect(() => {
-    fetch("/auth/providers").then((r) => r.json()).then(setInfo, () => setInfo({ providers: [], dev: false }));
+    fetch("/api/providers").then((r) => r.json()).then(setInfo, () => setInfo({ providers: [], emulated: false }));
   }, []);
-  const q = `?next=${encodeURIComponent(next)}`;
-  const forAgent = next.startsWith("/authorize");
+
+  const signIn = async (provider: Provider) => {
+    setBusy(provider);
+    setFailed(false);
+    // During an agent's authorization the signed OAuth request rides along (oauthProviderClient)
+    // and Better Auth resumes it after the callback; otherwise come back to `next`.
+    const res = await authClient.signIn.social({
+      provider,
+      callbackURL: next.startsWith("/") && !next.startsWith("//") ? next : "/",
+      errorCallbackURL: "/login?error=1",
+    });
+    if (res.error) {
+      setBusy(null);
+      setFailed(true);
+    }
+  };
+
   return (
     <div className="grid h-full place-items-center px-4">
       <div className="fy-card w-full max-w-[380px] p-8" style={{ boxShadow: "var(--fy-shadow-modal)" }}>
@@ -20,27 +41,21 @@ export function Login() {
         <p className="mt-1 text-kumo-subtle">
           {forAgent ? "You'll choose what the agent can act as next." : "Watch your agents work, compare their forks, ship the best one."}
         </p>
-        {error && <p className="mt-3 text-sm text-kumo-danger">Sign-in didn't complete. Try again.</p>}
+        {(failed || q.has("error")) && <p className="mt-3 text-sm text-kumo-danger">Sign-in didn't complete. Try again.</p>}
         <div className="mt-6 flex flex-col gap-2">
           {info?.providers.includes("github") && (
-            <a className="fy-btn fy-btn-primary" href={`/auth/github${q}`}>
-              <GithubLogo size={18} weight="fill" /> Continue with GitHub
-            </a>
+            <button className="fy-btn fy-btn-primary" disabled={!!busy} onClick={() => void signIn("github")}>
+              <GithubLogo size={18} weight="fill" /> {busy === "github" ? "Redirecting…" : "Continue with GitHub"}
+            </button>
           )}
           {info?.providers.includes("google") && (
-            <a className="fy-btn fy-btn-secondary" href={`/auth/google${q}`}>
-              <GoogleLogo size={18} weight="bold" /> Continue with Google
-            </a>
+            <button className="fy-btn fy-btn-secondary" disabled={!!busy} onClick={() => void signIn("google")}>
+              <GoogleLogo size={18} weight="bold" /> {busy === "google" ? "Redirecting…" : "Continue with Google"}
+            </button>
           )}
-          {info?.dev && (
-            <form method="post" action={`/auth/dev${q}`}>
-              <button className={`fy-btn w-full ${info.providers.length ? "fy-btn-secondary" : "fy-btn-primary"}`}>
-                <Terminal size={18} /> Continue as dev user
-              </button>
-            </form>
-          )}
-          {info && !info.providers.length && !info.dev && <p className="text-sm text-kumo-subtle">Sign-in isn't configured on this deployment.</p>}
+          {info && !info.providers.length && <p className="text-sm text-kumo-subtle">Sign-in isn't configured on this deployment.</p>}
         </div>
+        {info?.emulated && <p className="fy-eyebrow mt-6">Local · providers emulated by emulate.dev</p>}
       </div>
     </div>
   );
