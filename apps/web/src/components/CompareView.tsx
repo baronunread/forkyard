@@ -1,7 +1,7 @@
 import { Empty, Loader } from "@cloudflare/kumo";
-import { useEffect, useState } from "react";
-import type { Compare, FileCompare, TaskDetail } from "../lib/api";
-import { fetchFileCompare } from "../lib/data";
+import { useQuery } from "@tanstack/react-query";
+import type { Compare, TaskDetail } from "../lib/api";
+import { fileCompareQuery, headsOf } from "../lib/queries";
 import { AgentChip } from "./AgentChip";
 import { FileDiff, type DiffStyle } from "./DiffView";
 
@@ -23,21 +23,7 @@ export function CompareView({
   diffStyle: DiffStyle;
   wrap: boolean;
 }) {
-  const heads = detail.agents.map((a) => a.headCommit ?? "-").join(",");
-  const [data, setData] = useState<FileCompare | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!path) return;
-    let alive = true;
-    setData(null);
-    setError(null);
-    fetchFileCompare(yard, task, path, heads)
-      .then((d) => alive && setData(d))
-      .catch((e) => alive && setError(String(e.message ?? e)));
-    return () => {
-      alive = false;
-    };
-  }, [yard, task, path, heads]);
+  const { data, error } = useQuery({ ...fileCompareQuery(yard, task, path ?? "", headsOf(detail.agents)), enabled: !!path });
 
   if (!path) {
     const firstOverlap = compare?.files.find((f) => f.overlap);
@@ -49,10 +35,10 @@ export function CompareView({
       />
     );
   }
-  if (error) return <div className="text-sm text-kumo-danger">{error}</div>;
+  if (error) return <div className="text-sm text-bad">{error.message}</div>;
   if (!data)
     return (
-      <div className="flex items-center gap-2 text-sm text-kumo-subtle">
+      <div className="flex items-center gap-2 text-sm text-body">
         <Loader size="sm" /> loading {path}
       </div>
     );
@@ -64,11 +50,11 @@ export function CompareView({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-mono font-semibold">{path}</span>
-        <span className="text-kumo-subtle">
+        <span className="text-body">
           changed by {changed.length} of {data.versions.length} agents
         </span>
         {unchanged.length > 0 && (
-          <span className="flex items-center gap-1 text-xs text-kumo-subtle">
+          <span className="flex items-center gap-1 text-xs text-body">
             unchanged in:
             {unchanged.map((v) => {
               const a = agentById.get(v.agentId);
@@ -77,19 +63,19 @@ export function CompareView({
           </span>
         )}
       </div>
-      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.max(1, Math.min(changed.length, 3))}, minmax(0, 1fr))` }}>
+      <div className={["grid gap-3 grid-cols-1", "grid gap-3 grid-cols-1", "grid gap-3 grid-cols-2", "grid gap-3 grid-cols-3"][Math.min(changed.length, 3)]}>
         {changed.map((v) => {
           const a = agentById.get(v.agentId);
           if (!a) return null;
           return (
             <div key={v.agentId} className="min-w-0">
-              <div className="mb-1.5 flex min-w-0 items-center gap-2 rounded-md border-l-4 bg-kumo-base px-2 py-1.5" style={{ borderColor: a.color }}>
+              <div className="mb-1.5 flex min-w-0 items-center gap-2 rounded-md border-l-4 bg-surface px-2 py-1.5" style={{ borderColor: a.color }}>
                 <AgentChip agent={a} size={20} />
-                <span className="text-xs text-kumo-subtle">{v.status}</span>
-                {a.intent && <span className="truncate text-xs text-kumo-subtle">— {a.intent.summary}</span>}
+                <span className="text-xs text-body">{v.status}</span>
+                {a.intent && <span className="truncate text-xs text-body">— {a.intent.summary}</span>}
               </div>
               {v.binary ? (
-                <div className="rounded border border-kumo-hairline p-3 text-sm">binary</div>
+                <div className="rounded border border-line p-3 text-sm">binary</div>
               ) : (
                 <FileDiff
                   path={path}

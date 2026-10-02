@@ -5,10 +5,66 @@
 /* `dark:` follows the app toggle, not just the OS setting. */
 @custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
 
+/*
+ * Design tokens as Tailwind theme values, so the whole UI is plain utilities:
+ * bg-page / bg-surface / text-fg / text-body / text-muted / border-line /
+ * bg-ink text-on-ink / shadow-card / text-h1 … Colours point at the per-mode
+ * variables below, so `dark:` variants are rarely needed. `static` emits every
+ * --color-* variable, so inline styles and library variables can use them too.
+ */
 @theme {
   /* Inter: the closest open face to Cloudflare's product type (dashboard, Kumo). */
   --font-sans: "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+
+  --text-h1: 24px;
+  --text-h1--line-height: 32px;
+  --text-h1--letter-spacing: -0.96px;
+  --text-h1--font-weight: 600;
+  --text-h2: 20px;
+  --text-h2--line-height: 28px;
+  --text-h2--letter-spacing: -0.6px;
+  --text-h2--font-weight: 600;
+  --text-h3: 16px;
+  --text-h3--line-height: 24px;
+  --text-h3--letter-spacing: -0.32px;
+  --text-h3--font-weight: 600;
+  --text-stat: 32px;
+  --text-stat--line-height: 36px;
+  --text-stat--letter-spacing: -1.28px;
+  --text-stat--font-weight: 600;
+
+  --animate-blink: blink 1.4s ease-in-out infinite;
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+}
+
+@theme static {
+  --color-page: var(--fy-page);
+  --color-surface: var(--fy-surface);
+  --color-surface-2: var(--fy-surface-2);
+  --color-hover: var(--fy-hover);
+  --color-selected: var(--fy-selected);
+  --color-ink: var(--fy-ink);
+  --color-ink-hover: var(--fy-ink-hover);
+  --color-on-ink: var(--fy-on-ink);
+  --color-fg: var(--fy-fg);
+  --color-body: var(--fy-body);
+  --color-muted: var(--fy-muted);
+  --color-line: var(--fy-border);
+  --color-line-strong: var(--fy-border-strong);
+  --color-link: var(--fy-link);
+  --color-overlap: var(--fy-overlap);
+  --color-good: #29bc9b;
+  --color-busy: #f5a623;
+  --color-bad: #ee0000;
+  --color-info: #0070f3;
+
+  --shadow-card: var(--fy-shadow);
+  --shadow-card-hover: var(--fy-shadow-hover);
+  --shadow-modal: var(--fy-shadow-modal);
 }
 
 /*
@@ -36,6 +92,7 @@
   --fy-link: #0070f3;
   --fy-overlap: #ab570a; /* warning-deep: readable as text */
   --fy-shadow: 0 0 0 1px var(--fy-ring), 0px 1px 1px #00000005, 0px 2px 2px #0000000a;
+  --fy-shadow-hover: 0 0 0 1px var(--fy-border-strong), 0px 2px 2px #0000000a, 0px 8px 8px -8px #0000000a;
   --fy-shadow-modal: 0 0 0 1px var(--fy-ring), 0px 1px 1px #00000005, 0px 8px 16px -4px #0000000a, 0px 24px 32px -8px #0000000f;
 
   --color-kumo-canvas: var(--fy-page);
@@ -98,6 +155,7 @@
   --fy-link: #52a8ff;
   --fy-overlap: #f5a623;
   --fy-shadow: 0 0 0 1px var(--fy-ring);
+  --fy-shadow-hover: 0 0 0 1px var(--fy-border-strong);
   --fy-shadow-modal: 0 0 0 1px var(--fy-ring), 0px 24px 32px -8px #00000099;
 
   --color-kumo-fill: #1f1f1f;
@@ -124,60 +182,13 @@
   --text-color-kumo-warning: #f5a623;
 }
 
-html, body, #root { height: 100%; }
-body {
-  margin: 0;
-  background: var(--fy-page);
-  color: var(--fy-fg);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 20px;
-  -webkit-font-smoothing: antialiased;
-  font-feature-settings: "liga", "calt";
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply m-0 bg-page font-sans text-sm text-fg antialiased;
+    font-feature-settings: "liga", "calt";
+  }
+  ::selection { @apply bg-ink text-on-ink; }
+  code, kbd, pre { @apply font-mono; }
+  button:not(:disabled) { cursor: pointer; }
 }
-::selection { background: var(--fy-ink); color: var(--fy-on-ink); }
-code, kbd, pre, .font-mono { font-family: var(--font-mono); }
-
-/* Card: white surface held by an inset hairline + stacked small shadows (Level 2). */
-.fy-card { background: var(--fy-surface); border-radius: 8px; box-shadow: var(--fy-shadow); }
-.fy-card-hover { transition: box-shadow 150ms ease; }
-.fy-card-hover:hover { box-shadow: 0 0 0 1px var(--fy-border-strong), 0px 2px 2px #0000000a, 0px 8px 8px -8px #0000000a; }
-
-/* Technical eyebrow: caption-mono, uppercase, muted. */
-.fy-eyebrow { font-family: var(--font-mono); font-size: 12px; line-height: 16px; text-transform: uppercase; color: var(--fy-muted); letter-spacing: 0; font-weight: 400; }
-
-/* Headings: weight 600, sentence case, negative tracking. */
-.fy-h1 { font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -0.96px; }
-.fy-h2 { font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.6px; }
-.fy-h3 { font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: -0.32px; }
-
-/* Primary button: flat ink, inverts in dark mode (Kumo's primary paints a brand gradient with forced white text). */
-.fy-primary { background: var(--fy-ink) !important; color: var(--fy-on-ink) !important; --tw-ring-color: transparent !important; border-radius: 6px !important; }
-.fy-primary > span[aria-hidden="true"] { display: none; }
-/* Kumo's `!text-white` is a layered !important, which outranks any unlayered rule on the button itself; colour the children instead. */
-.fy-primary > span, .fy-primary > span * { color: var(--fy-on-ink); }
-.fy-primary:hover:not(:disabled) { background: var(--fy-ink-hover) !important; }
-/* In-app buttons use the 6px radius. */
-button { border-radius: 6px; }
-
-.fy-scroll { overflow: auto; scrollbar-gutter: stable; }
-.fy-hunk-focus { outline: 2px solid var(--fy-link); outline-offset: 2px; border-radius: 6px; }
-kbd.fy-kbd {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 16px;
-  padding: 0 5px;
-  border-radius: 4px;
-  color: var(--fy-body);
-  background: var(--fy-surface);
-  box-shadow: 0 0 0 1px var(--fy-border);
-}
-@keyframes fy-pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
-.fy-pulse { animation: fy-pulse 1.4s ease-in-out infinite; }
-
-/* Plain buttons/links in the in-app scale (sign-in page, non-Kumo surfaces). */
-.fy-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; border: 0; text-decoration: none; }
-.fy-btn-primary { background: var(--fy-ink); color: var(--fy-on-ink); }
-.fy-btn-primary:hover { background: var(--fy-ink-hover); }
-.fy-btn-secondary { background: var(--fy-surface); color: var(--fy-fg); box-shadow: 0 0 0 1px var(--fy-border); }
-.fy-btn-secondary:hover { background: var(--fy-hover); }

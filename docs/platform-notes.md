@@ -48,6 +48,9 @@ Everything account-related is [Better Auth](https://www.better-auth.com) on D1 (
 
 ## UI libraries
 
+- **Tailwind v4** carries all styling. Design tokens are `@theme` values pointing at per-mode CSS variables (`@theme static`, so inline styles and library variables such as `--diffs-*` / `--trees-*` can use `--color-*` too); there are no component classes left in CSS.
+- **TanStack**: Router (code-based route tree, `beforeLoad` sign-in guard, zod-validated search params), Query (every read; keys nest under `["yard", id]` so one live event can invalidate a yard), Pacer (debounced invalidation from the WebSocket), Form (zod validators via Standard Schema), Table v9 (`useTable` + `tableFeatures`), Hotkeys and Virtual.
+- The sign-in and `/connect` pages read the signed OAuth query from `window.location` (Better Auth's client plugin does too), not from router search state, so the router never re-serializes the signature.
 - Kumo tokens use `light-dark()`; the app sets `data-mode` on `<html>` (Kumo's mechanism) and Tailwind's `dark:` variant is bound to it.
 - `@pierre/diffs` follows `themeType` from the same mode.
 - `@pierre/trees` renders in a shadow root with `color-scheme: light dark`, which would follow the OS instead of the toggle; Forkyard overrides its color variables with resolved values and pins `color-scheme` via `unsafeCSS`.

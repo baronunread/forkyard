@@ -90,14 +90,48 @@ export function previewUrl(yard: Yard, agent: Pick<Agent, "id" | "taskId" | "for
 
 // ── yards ──────────────────────────────────────────────────────────────────
 
-export async function yardsList(env: Env, p: Principal): Promise<Yard[]> {
+export interface YardSummary {
+  openTasks: number;
+  decidedTasks: number;
+  /** Agents on open tasks that are still going (forking, working, pushed, reviewed). */
+  activeAgents: number;
+  /** Latest task created or decided. */
+  lastActivityAt: string | null;
+}
+
+/** Yards the caller can see, each with a summary for the overview list. */
+export async function yardsList(env: Env, p: Principal): Promise<(Yard & { summary: YardSummary })[]> {
   const all = await listYards(env.DB);
-  if (p.kind === "agent") return all.filter((y) => y.id === p.yardId);
-  if (p.kind === "user") {
+  let yards = all;
+  if (p.kind === "agent") yards = all.filter((y) => y.id === p.yardId);
+  else if (p.kind === "user") {
     const visible = await Promise.all(all.map((y) => isMember(env, p.userId, y.id)));
-    return all.filter((_, i) => visible[i]);
+    yards = all.filter((_, i) => visible[i]);
   }
-  return all;
+  const [tasks, agents] = await env.DB.batch<Record<string, string | number | null>>([
+    env.DB.prepare(
+      `SELECT yard_id, SUM(status = 'open') AS open, SUM(status = 'decided') AS decided,
+              MAX(COALESCE(decided_at, created_at)) AS last FROM tasks GROUP BY yard_id`,
+    ),
+    env.DB.prepare(
+      `SELECT a.yard_id, COUNT(*) AS n FROM agents a JOIN tasks t ON t.yard_id = a.yard_id AND t.id = a.task_id
+       WHERE t.status = 'open' AND a.status IN ('forking', 'ready', 'working', 'pushed', 'reviewed') GROUP BY a.yard_id`,
+    ),
+  ]);
+  const byYard = new Map(tasks!.results.map((r) => [String(r.yard_id), r]));
+  const active = new Map(agents!.results.map((r) => [String(r.yard_id), Number(r.n)]));
+  return yards.map((y) => {
+    const t = byYard.get(y.id);
+    return {
+      ...y,
+      summary: {
+        openTasks: Number(t?.open ?? 0),
+        decidedTasks: Number(t?.decided ?? 0),
+        activeAgents: active.get(y.id) ?? 0,
+        lastActivityAt: t?.last ? String(t.last) : null,
+      },
+    };
+  });
 }
 
 export async function yardCreate(env: Env, p: Principal, input: CreateYardInput): Promise<Yard> {

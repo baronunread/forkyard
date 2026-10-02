@@ -1,7 +1,9 @@
-import { Banner, Button, Empty, Loader, Tabs } from "@cloudflare/kumo";
-import type { YardEvent } from "@forkyard/shared";
+import { Banner, Empty, Loader, Tabs } from "@cloudflare/kumo";
 import { ArrowLeft, GitMerge, Warning } from "@phosphor-icons/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useHotkeys, type UseHotkeyDefinition } from "@tanstack/react-hotkeys";
+import { useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentStrip } from "../components/AgentStrip";
 import { AgentView } from "../components/AgentView";
 import { CompareView } from "../components/CompareView";
@@ -9,121 +11,88 @@ import { DecideView } from "../components/DecideView";
 import { FileTreePane } from "../components/FileTreePane";
 import { TaskStatusBadge } from "../components/Status";
 import { Timeline } from "../components/Timeline";
-import { call, taskRoute, yardRoute } from "../lib/api";
+import { Button, Card, Eyebrow } from "../components/ui";
 import { useCommands } from "../lib/commands";
-import { useAsync, useDebounced, usePersistent } from "../lib/data";
-import { useYardLive } from "../lib/live";
-import { navigate } from "../lib/router";
+import { useYardSync } from "../lib/live";
+import { usePersistent } from "../lib/persistent";
+import { compareQuery, taskEventsQuery, taskQuery } from "../lib/queries";
+import { TASK_VIEWS, type TaskSearch } from "../lib/search";
 import { toasts } from "../lib/toast";
 
-type View = "agent" | "compare" | "activity" | "decide";
+type View = (typeof TASK_VIEWS)[number];
 
-const RELEVANT = new Set([
-  "agent.ready",
-  "agent.failed",
-  "agent.status",
-  "push.received",
-  "diff.updated",
-  "intent.recorded",
-  "review.completed",
-  "overlap.detected",
-  "overlap.cleared",
-  "claim.added",
-  "claim.released",
-  "decision.made",
-  "task.abandoned",
-]);
+/** Classes put on the focused hunk banner by j / k. */
+const HUNK_FOCUS = ["outline-2", "outline-offset-2", "outline-link", "rounded-md"];
 
-export function TaskPage({ yard, task, agentParam, fileParam }: { yard: string; task: string; agentParam?: string; fileParam?: string }) {
-  const detail = useAsync(() => call(taskRoute.$get({ param: { yard, task } })), [yard, task]);
-  const compare = useAsync(() => call(taskRoute.compare.$get({ param: { yard, task } })), [yard, task]);
-  const [events, setEvents] = useState<YardEvent[]>([]);
-  const [view, setView] = useState<View>("agent");
+export function TaskPage({ yard, task, search }: { yard: string; task: string; search: TaskSearch }) {
+  const detail = useQuery(taskQuery(yard, task));
+  const compare = useQuery(compareQuery(yard, task));
+  const events = useQuery(taskEventsQuery(yard, task));
+  const navigate = useNavigate();
   const [split, setSplit] = usePersistent<boolean>("forkyard.split", true);
   const [wrap, setWrap] = usePersistent<boolean>("forkyard.wrap", false);
   const [now, setNow] = useState(Date.now());
   const diffStyle = split ? "split" : "unified";
+  const view: View = search.view ?? "changes";
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 10_000);
     return () => clearInterval(t);
   }, []);
 
-  useEffect(() => {
-    let alive = true;
-    call(yardRoute.events.$get({ param: { yard }, query: { since: "0", limit: "1000", taskId: task } })).then(
-      (r) => alive && setEvents((prev) => mergeEvents(r.events.filter((e) => e.taskId === task || e.taskId === null), prev)),
-    );
-    return () => {
-      alive = false;
-    };
-  }, [yard, task]);
-
-  const refresh = useDebounced(() => {
-    detail.reload();
-    compare.reload();
-  }, 250);
-  const live = useYardLive(yard, (e) => {
-    if (e.taskId !== task && e.taskId !== null) return;
-    setEvents((prev) => mergeEvents(prev, [e]));
-    if (RELEVANT.has(e.type)) refresh();
-    if (e.type === "overlap.detected")
+  const live = useYardSync(yard, (e) => {
+    if (e.type === "overlap.detected" && e.taskId === task)
       toasts.add({ title: "Overlap", description: `${e.data.overlap.path} — ${e.data.overlap.agents.join(" & ")}`, variant: "warning" });
   });
 
   const d = detail.data;
   const agents = useMemo(() => d?.agents ?? [], [d]);
-  const selectedAgent = agents.find((a) => a.id === agentParam) ?? agents.find((a) => a.headCommit) ?? agents[0] ?? null;
+  const selectedAgent = agents.find((a) => a.id === search.agent) ?? agents.find((a) => a.headCommit) ?? agents[0] ?? null;
   const files = compare.data?.files ?? [];
-  const selectedFile = fileParam && files.some((f) => f.path === fileParam) ? fileParam : null;
+  const selectedFile = search.file && files.some((f) => f.path === search.file) ? search.file : null;
   const compareFile = selectedFile ?? files.find((f) => f.overlap)?.path ?? files[0]?.path ?? null;
 
-  const go = useCallback(
-    (patch: { agent?: string; file?: string | null }) =>
-      navigate({ name: "task", yard, task, agent: patch.agent ?? selectedAgent?.id, file: patch.file === null ? undefined : (patch.file ?? selectedFile ?? undefined) }, true),
-    [yard, task, selectedAgent?.id, selectedFile],
-  );
+  /** Everything about where you are on this page lives in the URL (?agent=&file=&view=). */
+  const go = (patch: Partial<TaskSearch>) =>
+    void navigate({ to: "/y/$yard/t/$task", params: { yard, task }, search: (s: TaskSearch) => ({ ...s, ...patch }), replace: true });
+  const setView = (v: View) => go({ view: v === "changes" ? undefined : v });
 
   // Keyboard: [ ] agents, 1-9 forks, j/k hunks, a/c/l/d views, s split, w wrap.
   const mainRef = useRef<HTMLDivElement>(null);
   const hunkIdx = useRef(-1);
   useEffect(() => {
-    const onKey = (ev: KeyboardEvent) => {
-      const t = ev.target as HTMLElement | null;
-      if (ev.metaKey || ev.ctrlKey || ev.altKey || (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))) return;
-      const idx = agents.findIndex((a) => a.id === selectedAgent?.id);
-      if (ev.key === "]" && agents.length) go({ agent: agents[(idx + 1) % agents.length]!.id });
-      else if (ev.key === "[" && agents.length) go({ agent: agents[(idx - 1 + agents.length) % agents.length]!.id });
-      else if (/^[1-9]$/.test(ev.key) && agents[Number(ev.key) - 1]) go({ agent: agents[Number(ev.key) - 1]!.id });
-      else if (ev.key === "j" || ev.key === "k") {
-        const anchors = [...(mainRef.current?.querySelectorAll<HTMLElement>("[data-hunk]") ?? [])];
-        if (!anchors.length) return;
-        anchors.forEach((a) => a.classList.remove("fy-hunk-focus"));
-        hunkIdx.current = Math.max(0, Math.min(anchors.length - 1, hunkIdx.current + (ev.key === "j" ? 1 : -1)));
-        const el = anchors[hunkIdx.current]!;
-        el.classList.add("fy-hunk-focus");
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      } else if (ev.key === "a") setView("agent");
-      else if (ev.key === "c") setView("compare");
-      else if (ev.key === "l") setView("activity");
-      else if (ev.key === "d") setView("decide");
-      else if (ev.key === "s") setSplit(!split);
-      else if (ev.key === "w") setWrap(!wrap);
-      else return;
-      ev.preventDefault();
-    };
-    addEventListener("keydown", onKey);
-    return () => removeEventListener("keydown", onKey);
-  }, [agents, selectedAgent?.id, go, split, wrap, setSplit, setWrap]);
-  useEffect(() => {
     hunkIdx.current = -1;
   }, [selectedAgent?.id, view, selectedFile]);
+  const moveHunk = (delta: 1 | -1) => {
+    const anchors = [...(mainRef.current?.querySelectorAll<HTMLElement>("[data-hunk]") ?? [])];
+    if (!anchors.length) return;
+    anchors.forEach((a) => a.classList.remove(...HUNK_FOCUS));
+    hunkIdx.current = Math.max(0, Math.min(anchors.length - 1, hunkIdx.current + delta));
+    const el = anchors[hunkIdx.current]!;
+    el.classList.add(...HUNK_FOCUS);
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  const idx = agents.findIndex((a) => a.id === selectedAgent?.id);
+  const keys: UseHotkeyDefinition[] = [
+    { hotkey: "]", callback: () => agents.length && go({ agent: agents[(idx + 1) % agents.length]!.id }) },
+    { hotkey: "[", callback: () => agents.length && go({ agent: agents[(idx - 1 + agents.length) % agents.length]!.id }) },
+    { hotkey: "J", callback: () => moveHunk(1) },
+    { hotkey: "K", callback: () => moveHunk(-1) },
+    { hotkey: "A", callback: () => setView("changes") },
+    { hotkey: "C", callback: () => setView("compare") },
+    { hotkey: "L", callback: () => setView("activity") },
+    { hotkey: "D", callback: () => setView("decide") },
+    { hotkey: "S", callback: () => setSplit(!split) },
+    { hotkey: "W", callback: () => setWrap(!wrap) },
+    ...(["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const).map((k, i) => ({ hotkey: k, callback: () => agents[i] && go({ agent: agents[i].id, view: undefined }) })),
+  ];
+  useHotkeys(keys, { preventDefault: true });
 
   useCommands(
     "task",
     [
-      ...agents.map((a, i) => ({ id: `agent-${a.id}`, group: "Agents", title: `${a.name}'s changes`, hint: i < 9 ? String(i + 1) : undefined, run: () => go({ agent: a.id }) })),
-      { id: "view-agent", group: "View", title: "Changes", hint: "a", run: () => setView("agent") },
+      ...agents.map((a, i) => ({ id: `agent-${a.id}`, group: "Agents", title: `${a.name}'s changes`, hint: i < 9 ? String(i + 1) : undefined, run: () => go({ agent: a.id, view: undefined }) })),
+      { id: "view-agent", group: "View", title: "Changes", hint: "a", run: () => setView("changes") },
       { id: "view-compare", group: "View", title: "Compare a file across agents", hint: "c", run: () => setView("compare") },
       { id: "view-activity", group: "View", title: "Activity", hint: "l", run: () => setView("activity") },
       { id: "view-decide", group: "View", title: "Decide", hint: "d", run: () => setView("decide") },
@@ -146,75 +115,59 @@ export function TaskPage({ yard, task, agentParam, fileParam }: { yard: string; 
   const open = d.task.status === "open";
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-col gap-5 px-6 pb-5 pt-6">
+      <div className="flex flex-col gap-5 px-6 pt-6 pb-5">
         <header className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3">
-              <h1 className="fy-h1 truncate">{d.task.title}</h1>
+              <h1 className="truncate text-h1">{d.task.title}</h1>
               <TaskStatusBadge status={d.task.status} />
               {overlaps > 0 && (
-                <span className="inline-flex items-center gap-1 text-sm" style={{ color: "var(--fy-overlap)" }}>
+                <span className="inline-flex items-center gap-1 text-sm text-overlap">
                   <Warning weight="fill" /> {overlaps} overlap{overlaps > 1 ? "s" : ""}
                 </span>
               )}
-              {live !== "live" && <span className="text-xs text-kumo-subtle">Reconnecting…</span>}
+              {live !== "live" && <span className="text-xs text-body">Reconnecting…</span>}
             </div>
-            {d.task.brief && <p className="mt-1 line-clamp-1 max-w-3xl text-kumo-subtle">{d.task.brief}</p>}
+            {d.task.brief && <p className="mt-1 line-clamp-1 max-w-3xl text-body">{d.task.brief}</p>}
           </div>
           {view === "decide" ? (
-            <Button icon={<ArrowLeft />} onClick={() => setView("agent")}>
+            <Button icon={<ArrowLeft />} onClick={() => setView("changes")}>
               Back
             </Button>
           ) : (
-            <Button variant="primary" className="fy-primary" icon={<GitMerge />} onClick={() => setView("decide")}>
+            <Button variant="primary" icon={<GitMerge />} onClick={() => setView("decide")}>
               {open ? "Decide" : "Decision"}
             </Button>
           )}
         </header>
-        <AgentStrip
-          detail={d}
-          compare={compare.data}
-          selected={view === "agent" ? (selectedAgent?.id ?? null) : null}
-          onSelect={(id) => {
-            go({ agent: id });
-            setView("agent");
-          }}
-        />
+        <AgentStrip detail={d} selected={view === "changes" ? (selectedAgent?.id ?? null) : null} onSelect={(id) => go({ agent: id, view: undefined })} />
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-6 px-6 pb-6" style={{ gridTemplateColumns: "240px minmax(0,1fr)" }}>
+      <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)] gap-6 px-6 pb-6">
         <aside className="flex min-h-0 flex-col">
-          <div className="fy-eyebrow flex h-9 items-center justify-between">
+          <Eyebrow className="flex h-9 items-center justify-between">
             <span>Files</span>
             <span>{files.length}</span>
-          </div>
-          <div className="fy-card min-h-0 flex-1 overflow-hidden">
+          </Eyebrow>
+          <Card className="min-h-0 flex-1 overflow-hidden">
             {files.length ? (
-              <FileTreePane
-                files={files}
-                agents={agents}
-                selected={selectedFile}
-                onSelect={(p) => {
-                  go({ file: p });
-                  if (view !== "agent") setView("compare");
-                }}
-              />
+              <FileTreePane files={files} agents={agents} selected={selectedFile} onSelect={(p) => go({ file: p, view: view === "changes" ? undefined : "compare" })} />
             ) : (
               <Empty size="sm" title="No changes yet" description="Files appear as agents push." />
             )}
-          </div>
+          </Card>
         </aside>
 
-        <main ref={mainRef} className="fy-scroll min-h-0 px-px">
+        <div ref={mainRef} className="min-h-0 overflow-auto px-px [scrollbar-gutter:stable]">
           {view !== "decide" && (
-            <div className="sticky top-0 z-10 mb-4 flex h-9 items-center justify-between gap-4" style={{ background: "var(--fy-page)" }}>
+            <div className="sticky top-0 z-10 mb-4 flex h-9 items-center justify-between gap-4 bg-page">
               <Tabs
                 variant="underline"
                 size="sm"
                 value={view}
                 onValueChange={(v) => setView(v as View)}
                 tabs={[
-                  { value: "agent", label: "Changes" },
+                  { value: "changes", label: "Changes" },
                   { value: "compare", label: "Compare" },
                   { value: "activity", label: "Activity" },
                 ]}
@@ -233,38 +186,18 @@ export function TaskPage({ yard, task, agentParam, fileParam }: { yard: string; 
               )}
             </div>
           )}
-          {view === "agent" && selectedAgent && (
-            <AgentView yard={yard} task={task} agent={selectedAgent} compare={compare.data} diffStyle={diffStyle} wrap={wrap} focusFile={selectedFile} />
+          {view === "changes" && selectedAgent && (
+            <AgentView yard={yard} task={task} agent={selectedAgent} compare={compare.data ?? null} diffStyle={diffStyle} wrap={wrap} focusFile={selectedFile} />
           )}
-          {view === "compare" && <CompareView yard={yard} task={task} detail={d} compare={compare.data} path={compareFile} diffStyle={diffStyle} wrap={wrap} />}
+          {view === "compare" && <CompareView yard={yard} task={task} detail={d} compare={compare.data ?? null} path={compareFile} diffStyle={diffStyle} wrap={wrap} />}
           {view === "activity" && (
-            <div className="fy-card overflow-hidden">
-              <Timeline events={events} agents={agents} now={now} />
-            </div>
+            <Card className="overflow-hidden">
+              <Timeline events={events.data ?? []} agents={agents} now={now} />
+            </Card>
           )}
-          {view === "decide" && (
-            <DecideView
-              yard={yard}
-              task={task}
-              detail={d}
-              compare={compare.data}
-              diffStyle={diffStyle}
-              wrap={wrap}
-              onDecided={() => {
-                detail.reload();
-                compare.reload();
-              }}
-            />
-          )}
-        </main>
+          {view === "decide" && <DecideView yard={yard} task={task} detail={d} compare={compare.data ?? null} diffStyle={diffStyle} wrap={wrap} />}
+        </div>
       </div>
     </div>
   );
-}
-
-function mergeEvents(a: YardEvent[], b: YardEvent[]): YardEvent[] {
-  const m = new Map<number, YardEvent>();
-  for (const e of a) m.set(e.seq, e);
-  for (const e of b) m.set(e.seq, e);
-  return [...m.values()].sort((x, y) => x.seq - y.seq);
 }

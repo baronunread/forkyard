@@ -1,61 +1,118 @@
-import { useEffect, useState } from "react";
+import { Toasty, TooltipProvider } from "@cloudflare/kumo";
+import type { QueryClient } from "@tanstack/react-query";
+import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect } from "@tanstack/react-router";
+import { z } from "zod";
+import { AppShell } from "../components/AppShell";
+import { BenchPage } from "../pages/BenchPage";
+import { Connect } from "../pages/Connect";
+import { Login } from "../pages/Login";
+import { Overview } from "../pages/Overview";
+import { TaskPage } from "../pages/TaskPage";
+import { oauthInFlight } from "./auth-client";
+import { meQuery, queryClient } from "./queries";
+import { TaskSearch } from "./search";
+import { toasts } from "./toast";
 
-/** A tiny history router: `/`, `/y/:yard`, `/y/:yard/t/:task`, `/bench`. */
-export type Route =
-  | { name: "home" }
-  | { name: "yard"; yard: string }
-  | { name: "task"; yard: string; task: string; agent?: string; file?: string }
-  | { name: "bench" }
-  | { name: "login" }
-  | { name: "connect" };
+/**
+ * TanStack Router, code-based:
+ *
+ *   /login                    sign in (also the OAuth login step for agents)
+ *   /connect                  an agent's OAuth: pick a seat, consent
+ *   /                         overview: every yard on the left, the selected one's overview on the right
+ *   /y/$yard                  the same, with that yard selected
+ *   /y/$yard/t/$task          a task (?agent=&file=&view=)
+ *   /bench                    benchmarks
+ *
+ * Everything under the `app` layout needs a signed-in person (checked in beforeLoad).
+ */
 
-export function parse(pathname: string, search = ""): Route {
-  const q = new URLSearchParams(search);
-  const parts = pathname.split("/").filter(Boolean).map(decodeURIComponent);
-  if (parts[0] === "bench") return { name: "bench" };
-  if (parts[0] === "login") return { name: "login" };
-  if (parts[0] === "connect") return { name: "connect" };
-  if (parts[0] === "y" && parts[1] && parts[2] === "t" && parts[3])
-    return { name: "task", yard: parts[1], task: parts[3], agent: q.get("agent") ?? undefined, file: q.get("file") ?? undefined };
-  if (parts[0] === "y" && parts[1]) return { name: "yard", yard: parts[1] };
-  return { name: "home" };
-}
+const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  component: () => (
+    <Toasty toastManager={toasts}>
+      <TooltipProvider>
+        <Outlet />
+      </TooltipProvider>
+    </Toasty>
+  ),
+});
 
-export function href(r: Route): string {
-  switch (r.name) {
-    case "home":
-      return "/";
-    case "bench":
-      return "/bench";
-    case "login":
-      return "/login";
-    case "connect":
-      return "/connect";
-    case "yard":
-      return `/y/${encodeURIComponent(r.yard)}`;
-    case "task": {
-      const q = new URLSearchParams();
-      if (r.agent) q.set("agent", r.agent);
-      if (r.file) q.set("file", r.file);
-      const s = q.toString();
-      return `/y/${encodeURIComponent(r.yard)}/t/${encodeURIComponent(r.task)}${s ? `?${s}` : ""}`;
-    }
+const safeNext = (n: string | undefined) => (n && n.startsWith("/") && !n.startsWith("//") ? n : "/");
+
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/login",
+  // Loose: during an agent's OAuth the signed authorization request rides in the query.
+  validateSearch: z.looseObject({ next: z.string().optional(), error: z.string().optional() }),
+  beforeLoad: async ({ context, search }) => {
+    const me = await context.queryClient.ensureQueryData(meQuery);
+    // Signed in already: go where you were headed (an agent's sign-in step still shows, to switch accounts).
+    if (me?.user && !oauthInFlight()) throw redirect({ href: safeNext(search.next), replace: true });
+  },
+  component: Login,
+});
+
+const connectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/connect",
+  beforeLoad: async ({ context, location }) => {
+    const me = await context.queryClient.ensureQueryData(meQuery);
+    if (!me?.user) throw redirect({ to: "/login", search: { next: location.href } });
+  },
+  component: Connect,
+});
+
+const appRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: "app",
+  beforeLoad: async ({ context, location }) => {
+    const me = await context.queryClient.ensureQueryData(meQuery);
+    if (!me?.user) throw redirect({ to: "/login", search: { next: location.href } });
+    return { me };
+  },
+  component: AppShell,
+});
+
+const indexRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/",
+  component: () => <Overview yard={null} />,
+});
+
+const yardRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/y/$yard",
+  component: function YardOverview() {
+    const { yard } = yardRoute.useParams();
+    return <Overview yard={yard} />;
+  },
+});
+
+const taskRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/y/$yard/t/$task",
+  validateSearch: TaskSearch,
+  component: function TaskRouteView() {
+    const { yard, task } = taskRoute.useParams();
+    const search = taskRoute.useSearch();
+    return <TaskPage key={`${yard}/${task}`} yard={yard} task={task} search={search} />;
+  },
+});
+
+const benchRoute = createRoute({ getParentRoute: () => appRoute, path: "/bench", component: BenchPage });
+
+const routeTree = rootRoute.addChildren([loginRoute, connectRoute, appRoute.addChildren([indexRoute, yardRoute, taskRoute, benchRoute])]);
+
+export const router = createRouter({
+  routeTree,
+  context: { queryClient },
+  defaultPreload: "intent",
+  // Loaders don't own data here; TanStack Query does.
+  defaultPreloadStaleTime: 0,
+  scrollRestoration: true,
+});
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
   }
-}
-
-export function navigate(r: Route | string, replace = false): void {
-  const url = typeof r === "string" ? r : href(r);
-  if (replace) history.replaceState(null, "", url);
-  else history.pushState(null, "", url);
-  dispatchEvent(new PopStateEvent("popstate"));
-}
-
-export function useRoute(): Route {
-  const [route, setRoute] = useState(() => parse(location.pathname, location.search));
-  useEffect(() => {
-    const on = () => setRoute(parse(location.pathname, location.search));
-    addEventListener("popstate", on);
-    return () => removeEventListener("popstate", on);
-  }, []);
-  return route;
 }

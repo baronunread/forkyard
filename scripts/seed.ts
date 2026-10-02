@@ -20,6 +20,7 @@ import { ADMIN_KEY, BASE, Git, Mcp, api, arg, log, sleep } from "./lib";
 const pace = ({ fast: 0, demo: 1, slow: 2 } as Record<string, number>)[arg("pace", "demo")!] ?? 1;
 const decide = arg("no-decide") !== "true";
 const yardId = arg("yard", `demo-${Date.now().toString(36).slice(-4)}`)!;
+const yardName = arg("name", "Todo service (demo)")!;
 const beat = (ms: number) => sleep(ms * pace);
 
 const BASE_FILES: Record<string, string> = {
@@ -302,7 +303,7 @@ AGENTS[1]!.steps[1]!.files["src/server.ts"] = AGENTS[1]!.steps[0]!.files["src/se
 
 async function main() {
   console.log(`Forkyard seed → ${BASE}  (yard "${yardId}", pace ×${pace})\n`);
-  await api("/yards", { body: { id: yardId, name: "Todo service (demo)", files: BASE_FILES } });
+  await api("/yards", { body: { id: yardId, name: yardName, files: BASE_FILES } });
   log("seed", `created yard ${yardId}`);
   await beat(1500);
 

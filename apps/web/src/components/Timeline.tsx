@@ -1,6 +1,8 @@
 import { describeEvent, type YardEvent } from "@forkyard/shared";
-import { useMemo, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useMemo, useRef, useState } from "react";
 import { AgentBadge, type AgentLike } from "./AgentChip";
+import { cx } from "./ui";
 
 const GROUPS: Record<string, string[]> = {
   pushes: ["push.received", "diff.updated"],
@@ -18,31 +20,36 @@ function ago(ts: string, now: number): string {
   return `${Math.round(s / 86400)}d`;
 }
 
-/** Live feed of yard events, filterable by agent and kind. */
+/**
+ * Live feed of a task's events, filterable by agent and kind. The list is
+ * virtualized (TanStack Virtual): a busy task has thousands of events.
+ */
 export function Timeline({ events, agents, now = Date.now() }: { events: YardEvent[]; agents: AgentLike[]; now?: number }) {
   const [hiddenAgents, setHiddenAgents] = useState<Set<string>>(new Set());
   const [group, setGroup] = useState<string>("all");
   const byId = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   const name = (id: string | null) => (id ? (byId.get(id)?.name ?? id) : "?");
-  const shown = events
-    .filter((e) => !e.agentId || !hiddenAgents.has(e.agentId))
-    .filter((e) => group === "all" || GROUPS[group]?.includes(e.type))
-    .slice(-300)
-    .reverse();
+  const shown = useMemo(
+    () =>
+      events
+        .filter((e) => !e.agentId || !hiddenAgents.has(e.agentId))
+        .filter((e) => group === "all" || GROUPS[group]?.includes(e.type))
+        .slice()
+        .reverse(),
+    [events, hiddenAgents, group],
+  );
+  const scroller = useRef<HTMLDivElement>(null);
+  const rows = useVirtualizer({ count: shown.length, getScrollElement: () => scroller.current, estimateSize: () => 30, overscan: 12, getItemKey: (i) => shown[i]!.seq });
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-1 border-b border-kumo-hairline p-2">
+      <div className="flex flex-wrap items-center gap-1 border-b border-line p-2">
         {["all", ...Object.keys(GROUPS)].map((g) => (
-          <button
-            key={g}
-            onClick={() => setGroup(g)}
-            className={`rounded px-1.5 py-0.5 text-xs ${group === g ? "bg-kumo-tint font-semibold text-kumo-default" : "text-kumo-subtle hover:bg-kumo-tint"}`}
-          >
+          <button key={g} onClick={() => setGroup(g)} className={cx("rounded px-1.5 py-0.5 text-xs", group === g ? "bg-hover font-semibold text-fg" : "text-body hover:bg-hover")}>
             {g}
           </button>
         ))}
-        <span className="mx-1 h-4 w-px bg-kumo-hairline" />
+        <span className="mx-1 h-4 w-px bg-line" />
         {agents.map((a) => {
           const off = hiddenAgents.has(a.id);
           return (
@@ -58,28 +65,39 @@ export function Timeline({ events, agents, now = Date.now() }: { events: YardEve
                   return n;
                 })
               }
-              className={`rounded-full p-0.5 ${off ? "opacity-30" : ""}`}
+              className={cx("rounded-full p-0.5", off && "opacity-30")}
             >
               <AgentBadge agent={a} size={18} />
             </button>
           );
         })}
       </div>
-      <ol className="fy-scroll min-h-0 flex-1 space-y-0.5 p-2 text-sm" aria-live="polite">
-        {shown.length === 0 && <li className="p-2 text-kumo-subtle">No events yet.</li>}
-        {shown.map((e) => {
-          const a = e.agentId ? byId.get(e.agentId) : undefined;
-          const warn = e.type === "overlap.detected";
-          const good = e.type === "decision.made" || e.type === "review.completed";
-          return (
-            <li key={e.seq} className={`flex items-start gap-2 rounded px-1.5 py-1 ${warn ? "bg-amber-500/10" : ""}`}>
-              <span className="mt-0.5 w-6 shrink-0 text-right font-mono text-[10px] text-kumo-subtle">{ago(e.ts, now)}</span>
-              {a ? <AgentBadge agent={a} size={18} /> : <span className="inline-block w-[18px] shrink-0 text-center text-xs">{warn ? "⚠" : good ? "✓" : "•"}</span>}
-              <span className={`min-w-0 break-words ${warn ? "font-medium" : ""}`}>{describeEvent(e, name)}</span>
-            </li>
-          );
-        })}
-      </ol>
+      <div ref={scroller} className="max-h-[70vh] min-h-0 flex-1 overflow-y-auto p-2 text-sm" aria-live="polite">
+        {shown.length === 0 && <p className="p-2 text-body">No events yet.</p>}
+        <ol className="relative" style={{ height: rows.getTotalSize() }}>
+          {rows.getVirtualItems().map((v) => {
+            const e = shown[v.index]!;
+            const a = e.agentId ? byId.get(e.agentId) : undefined;
+            const warn = e.type === "overlap.detected";
+            const good = e.type === "decision.made" || e.type === "review.completed";
+            return (
+              <li
+                key={v.key}
+                data-index={v.index}
+                ref={rows.measureElement}
+                className="absolute inset-x-0 top-0 py-px"
+                style={{ transform: `translateY(${v.start}px)` }}
+              >
+                <div className={cx("flex items-start gap-2 rounded px-1.5 py-1", warn && "bg-overlap/10")}>
+                  <span className="mt-0.5 w-6 shrink-0 text-right font-mono text-[10px] text-body">{ago(e.ts, now)}</span>
+                  {a ? <AgentBadge agent={a} size={18} /> : <span className="inline-block w-[18px] shrink-0 text-center text-xs">{warn ? "⚠" : good ? "✓" : "•"}</span>}
+                  <span className={cx("min-w-0 break-words", warn && "font-medium")}>{describeEvent(e, name)}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
     </div>
   );
 }

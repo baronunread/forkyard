@@ -1,13 +1,15 @@
-import { Banner, Button, Checkbox, Dialog, Input, Loader, Radio } from "@cloudflare/kumo";
+import { Banner, Checkbox, Dialog, Input, Loader, Radio } from "@cloudflare/kumo";
 import type { DecideInput, Selection } from "@forkyard/shared";
 import { CheckCircle, GitMerge, Trophy, Warning } from "@phosphor-icons/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { call, taskRoute, type Compare, type DecidePreview, type FileCompare, type TaskDetail } from "../lib/api";
-import { fetchFileCompare } from "../lib/data";
+import { call, taskRoute, type Compare, type DecidePreview, type TaskDetail } from "../lib/api";
+import { fileCompareQuery, headsOf } from "../lib/queries";
 import { toastError, toasts } from "../lib/toast";
 import { AgentChip, type AgentLike } from "./AgentChip";
 import { FileDiff, LazyMount, type DiffStyle } from "./DiffView";
 import { Pill, Score } from "./Status";
+import { Button, Card, cx } from "./ui";
 
 type Pick = "whole" | Set<string>;
 const RESULT: AgentLike = { id: "result", name: "Combined result", initials: "∑", color: "#71717a" };
@@ -23,7 +25,6 @@ export function DecideView({
   compare,
   diffStyle,
   wrap,
-  onDecided,
 }: {
   yard: string;
   task: string;
@@ -31,16 +32,29 @@ export function DecideView({
   compare: Compare | null;
   diffStyle: DiffStyle;
   wrap: boolean;
-  onDecided: () => void;
 }) {
+  const qc = useQueryClient();
   const ranked = useMemo(() => [...detail.agents].filter((a) => a.headCommit).sort((a, b) => (b.review?.score ?? -1) - (a.review?.score ?? -1)), [detail.agents]);
   const [mode, setMode] = useState<"winner" | "assemble">("winner");
   const [winner, setWinner] = useState<string | null>(ranked[0]?.id ?? null);
   const [picks, setPicks] = useState<Map<string, Map<string, Pick>>>(new Map());
   const [message, setMessage] = useState(detail.task.title);
-  const [preview, setPreview] = useState<DecidePreview | null>(null);
-  const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const previewM = useMutation({
+    mutationFn: (json: DecideInput) => call(taskRoute.decide.preview.$post({ param: { yard, task }, json })),
+    onError: (e) => toastError(e, "Preview failed"),
+  });
+  const applyM = useMutation({
+    mutationFn: (json: DecideInput) => call(taskRoute.decide.$post({ param: { yard, task }, json })),
+    onSuccess: (r) => {
+      toasts.add({ title: "Decision applied", description: `Base moved to ${r.decision.resultCommit.slice(0, 7)}`, variant: "success" });
+      setConfirm(false);
+      void qc.invalidateQueries({ queryKey: ["yard", yard] });
+      void qc.invalidateQueries({ queryKey: ["yards"] });
+    },
+    onError: (e) => toastError(e, "Could not apply"),
+  });
+  const preview: DecidePreview | null = previewM.data ?? null;
 
   const input = useMemo<DecideInput | null>(() => {
     if (mode === "winner") return winner ? { mode: "winner", winnerAgentId: winner, message } : null;
@@ -53,7 +67,8 @@ export function DecideView({
     return selections.length ? { mode: "assemble", selections, message } : null;
   }, [mode, winner, picks, message]);
 
-  useEffect(() => setPreview(null), [input]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => previewM.reset(), [input]);
 
   if (detail.task.status !== "open") {
     const d = detail.decision;
@@ -70,31 +85,8 @@ export function DecideView({
     );
   }
 
-  const runPreview = async () => {
-    if (!input) return;
-    setBusy("preview");
-    try {
-      setPreview(await call(taskRoute.decide.preview.$post({ param: { yard, task }, json: input })));
-    } catch (e) {
-      toastError(e, "Preview failed");
-    } finally {
-      setBusy(null);
-    }
-  };
-  const apply = async () => {
-    if (!input) return;
-    setBusy("apply");
-    try {
-      const r = await call(taskRoute.decide.$post({ param: { yard, task }, json: input }));
-      toasts.add({ title: "Decision applied", description: `Base moved to ${r.decision.resultCommit.slice(0, 7)}`, variant: "success" });
-      setConfirm(false);
-      onDecided();
-    } catch (e) {
-      toastError(e, "Could not apply");
-    } finally {
-      setBusy(null);
-    }
-  };
+  const runPreview = () => input && previewM.mutate(input);
+  const apply = () => input && applyM.mutate(input);
 
   const setPick = (path: string, agentId: string, pick: Pick | null) =>
     setPicks((prev) => {
@@ -116,7 +108,7 @@ export function DecideView({
 
       {mode === "winner" ? (
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {ranked.length === 0 && <p className="text-sm text-kumo-subtle">No fork has pushed yet.</p>}
+          {ranked.length === 0 && <p className="text-sm text-body">No fork has pushed yet.</p>}
           {ranked.map((a) => {
             const c = compare?.agents.find((x) => x.agent.id === a.id);
             const sel = winner === a.id;
@@ -125,17 +117,16 @@ export function DecideView({
                 key={a.id}
                 onClick={() => setWinner(a.id)}
                 aria-pressed={sel}
-                className={`rounded-lg border bg-kumo-base p-3 text-left ${sel ? "" : "border-kumo-hairline"}`}
-                style={sel ? { borderColor: a.color, boxShadow: `0 0 0 1px ${a.color}` } : undefined}
+                className={cx("rounded-lg bg-surface p-3 text-left shadow-card transition-shadow hover:shadow-card-hover", sel && "ring-2 ring-ink")}
               >
                 <div className="flex items-center gap-2">
                   <AgentChip agent={a} />
-                  {sel && <Trophy weight="fill" className="ml-auto text-amber-500" aria-label="selected winner" />}
+                  {sel && <Trophy weight="fill" className="ml-auto text-busy" aria-label="selected winner" />}
                 </div>
-                <div className="mt-1 line-clamp-2 text-sm">{a.intent?.summary ?? <i className="text-kumo-subtle">no intent</i>}</div>
+                <div className="mt-1 line-clamp-2 text-sm">{a.intent?.summary ?? <i className="text-body">no intent</i>}</div>
                 <div className="mt-2 flex items-center justify-between text-xs">
                   <Score score={a.review?.score} />
-                  {c && <span className="font-mono text-kumo-subtle">{c.files.length} files +{c.additions} −{c.deletions}</span>}
+                  {c && <span className="font-mono text-body">{c.files.length} files +{c.additions} −{c.deletions}</span>}
                 </div>
               </button>
             );
@@ -143,7 +134,7 @@ export function DecideView({
         </div>
       ) : (
         <div className="space-y-3">
-          {(compare?.files ?? []).length === 0 && <p className="text-sm text-kumo-subtle">No changed files yet.</p>}
+          {(compare?.files ?? []).length === 0 && <p className="text-sm text-body">No changed files yet.</p>}
           {(compare?.files ?? []).map((f) => (
             <LazyMount key={f.path} minHeight={60}>
               <AssembleFile yard={yard} task={task} detail={detail} path={f.path} overlap={f.overlap} picks={picks.get(f.path)} setPick={setPick} />
@@ -152,14 +143,14 @@ export function DecideView({
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-2 border-t border-kumo-hairline pt-3">
+      <div className="flex flex-wrap items-end gap-2 border-t border-line pt-3">
         <div className="min-w-64 flex-1">
           <Input label="Commit message" value={message} onChange={(e) => setMessage(e.target.value)} />
         </div>
-        <Button onClick={runPreview} disabled={!input} loading={busy === "preview"}>
+        <Button size="lg" onClick={runPreview} disabled={!input} loading={previewM.isPending}>
           Preview result
         </Button>
-        <Button variant="primary" className="fy-primary" icon={<GitMerge />} disabled={!preview || preview.conflicts.length > 0} onClick={() => setConfirm(true)}>
+        <Button size="lg" variant="primary" icon={<GitMerge />} disabled={!preview || preview.conflicts.length > 0} onClick={() => setConfirm(true)}>
           Apply to base
         </Button>
       </div>
@@ -184,13 +175,13 @@ export function DecideView({
 
       <Dialog.Root open={confirm} onOpenChange={setConfirm}>
         <Dialog className="p-6" size="lg">
-          <Dialog.Title className="text-lg font-semibold">Apply this decision?</Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-kumo-subtle">
+          <Dialog.Title className="text-h3">Apply this decision?</Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-body">
             Forkyard will commit {preview?.files.length ?? 0} file(s) to the base branch and close the task. Forks are deleted after the cleanup TTL.
           </Dialog.Description>
           <div className="mt-6 flex justify-end gap-2">
             <Button onClick={() => setConfirm(false)}>Cancel</Button>
-            <Button variant="primary" className="fy-primary" loading={busy === "apply"} onClick={apply}>
+            <Button variant="primary" loading={applyM.isPending} onClick={apply}>
               Apply
             </Button>
           </div>
@@ -217,32 +208,24 @@ function AssembleFile({
   picks: Map<string, Pick> | undefined;
   setPick: (path: string, agentId: string, pick: Pick | null) => void;
 }) {
-  const heads = detail.agents.map((a) => a.headCommit ?? "-").join(",");
-  const [data, setData] = useState<FileCompare | null>(null);
-  useEffect(() => {
-    let alive = true;
-    fetchFileCompare(yard, task, path, heads).then((d) => alive && setData(d), toastError);
-    return () => {
-      alive = false;
-    };
-  }, [yard, task, path, heads]);
+  const { data } = useQuery(fileCompareQuery(yard, task, path, headsOf(detail.agents)));
   const agents = new Map(detail.agents.map((a) => [a.id, a]));
   return (
-    <div className="fy-card">
-      <div className="flex items-center gap-2 border-b border-kumo-hairline px-3 py-2">
+    <Card>
+      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
         <span className="font-mono text-sm font-semibold">{path}</span>
         {overlap && (
           <Pill>
-            <Warning weight="fill" style={{ color: "var(--fy-overlap)" }} /> overlap
+            <Warning weight="fill" className="text-overlap" /> overlap
           </Pill>
         )}
       </div>
       {!data ? (
-        <div className="flex items-center gap-2 p-3 text-sm text-kumo-subtle">
+        <div className="flex items-center gap-2 p-3 text-sm text-body">
           <Loader size="sm" /> loading hunks
         </div>
       ) : (
-        <div className="divide-y divide-kumo-hairline">
+        <div className="divide-y divide-line">
           {data.versions
             .filter((v) => v.status !== "unchanged")
             .map((v) => {
@@ -260,7 +243,7 @@ function AssembleFile({
                     {v.hunks.map((h, i) => {
                       const on = !whole && pick instanceof Set && pick.has(h.id);
                       return (
-                        <li key={h.id} className={`rounded border px-2 py-1.5 ${on ? "border-kumo-line bg-kumo-tint" : "border-kumo-hairline"} ${whole ? "opacity-50" : ""}`}>
+                        <li key={h.id} className={cx("rounded border px-2 py-1.5", on ? "border-line-strong bg-hover" : "border-line", whole && "opacity-50")}>
                           <Checkbox
                             disabled={whole}
                             checked={on}
@@ -283,7 +266,7 @@ function AssembleFile({
                                 {l}
                               </div>
                             ))}
-                            {h.lines.length > 8 && <div className="text-kumo-subtle">… {h.lines.length - 8} more lines</div>}
+                            {h.lines.length > 8 && <div className="text-body">… {h.lines.length - 8} more lines</div>}
                           </pre>
                         </li>
                       );
@@ -294,7 +277,7 @@ function AssembleFile({
             })}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -313,11 +296,7 @@ function PreviewFile({
   diffStyle: DiffStyle;
   wrap: boolean;
 }) {
-  const heads = detail.agents.map((a) => a.headCommit ?? "-").join(",");
-  const [base, setBase] = useState<string | null | undefined>(undefined);
-  useEffect(() => {
-    fetchFileCompare(yard, task, file.path, heads).then((d) => setBase(d.base), toastError);
-  }, [yard, task, file.path, heads]);
+  const base = useQuery(fileCompareQuery(yard, task, file.path, headsOf(detail.agents))).data?.base;
   const from = file.fromAgents.map((id) => detail.agents.find((a) => a.id === id)).filter((a): a is NonNullable<typeof a> => !!a);
   if (base === undefined) return null;
   return (
@@ -330,12 +309,12 @@ function PreviewFile({
       diffStyle={diffStyle}
       wrap={wrap}
       header={
-        <div className="flex items-center gap-2 border-b border-kumo-hairline px-3 py-1.5 text-xs">
-          <span className="text-kumo-subtle">from</span>
+        <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-xs">
+          <span className="text-body">from</span>
           {from.map((a) => (
             <AgentChip key={a.id} agent={a} size={16} />
           ))}
-          <span className="ml-auto text-kumo-subtle">{file.status}</span>
+          <span className="ml-auto text-body">{file.status}</span>
         </div>
       }
     />

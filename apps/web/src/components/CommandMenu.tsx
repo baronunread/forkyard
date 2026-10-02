@@ -1,5 +1,6 @@
 import { CommandPalette } from "@cloudflare/kumo";
 import { useEffect, useMemo, useState } from "react";
+import { Kbd } from "./ui";
 import { useAllCommands, type Command } from "../lib/commands";
 
 interface Group {
@@ -8,21 +9,10 @@ interface Group {
   items: Command[];
 }
 
-/** ⌘K / Ctrl+K: every navigation and view action, keyboard first. */
+/** ⌘K / Ctrl+K (bound in AppShell): every navigation and view action, keyboard first. */
 export function CommandMenu({ open, setOpen }: { open: boolean; setOpen: (o: boolean) => void }) {
   const commands = useAllCommands();
   const [search, setSearch] = useState("");
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setOpen(!open);
-      }
-    };
-    addEventListener("keydown", onKey);
-    return () => removeEventListener("keydown", onKey);
-  }, [open, setOpen]);
 
   useEffect(() => {
     if (!open) setSearch("");
@@ -67,7 +57,7 @@ export function CommandMenu({ open, setOpen }: { open: boolean; setOpen: (o: boo
                   <CommandPalette.Item key={item.id} value={item} onClick={() => run(item)}>
                     <span className="flex w-full items-center gap-3">
                       <span className="truncate">{item.title}</span>
-                      {item.hint && <kbd className="fy-kbd ml-auto">{item.hint}</kbd>}
+                      {item.hint && <Kbd className="ml-auto">{item.hint}</Kbd>}
                     </span>
                   </CommandPalette.Item>
                 )}
@@ -79,12 +69,12 @@ export function CommandMenu({ open, setOpen }: { open: boolean; setOpen: (o: boo
       </CommandPalette.List>
       <CommandPalette.Footer>
         <span className="flex items-center gap-2">
-          <kbd className="fy-kbd">↑↓</kbd> navigate <kbd className="fy-kbd">↵</kbd> run
+          <Kbd>↑↓</Kbd> navigate <Kbd>↵</Kbd> run
         </span>
         <span className="flex items-center gap-2">
-          <kbd className="fy-kbd">[</kbd>
-          <kbd className="fy-kbd">]</kbd> agents <kbd className="fy-kbd">j</kbd>
-          <kbd className="fy-kbd">k</kbd> hunks
+          <Kbd>[</Kbd>
+          <Kbd>]</Kbd> agents <Kbd>j</Kbd>
+          <Kbd>k</Kbd> hunks
         </span>
       </CommandPalette.Footer>
     </CommandPalette.Root>

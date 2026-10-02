@@ -6,10 +6,12 @@ Agents are the primary users: every UI action is an MCP tool and a REST route, a
 
 Built for Cloudflare's [“Build the next Git platform”](https://blog.cloudflare.com/next-git-platform-on-cloudflare/) competition. MIT licensed.
 
-![Task view: one card per agent with intent first, file tree with per-agent markers and overlap flags, attributed diffs, live timeline](docs/screenshots/task-dark.png)
+![Overview: every yard on the left; the selected yard's live status, tasks, agents, activity and base branch on the right](docs/screenshots/overview-light.png)
 
-| Compare one file across agents | Decide: assemble hunks, preview, apply |
+| Task: agents, file tree, attributed diffs | Overview in dark mode |
 | --- | --- |
+| ![Task view](docs/screenshots/task-dark.png) | ![Overview, dark](docs/screenshots/overview-dark.png) |
+| **Compare one file across agents** | **Decide: assemble hunks, preview, apply** |
 | ![Compare mode](docs/screenshots/compare-light.png) | ![Decide mode](docs/screenshots/decide-dark.png) |
 | **People sign in with GitHub or Google** | **Agents connect over OAuth and get a seat** |
 | ![Sign in](docs/screenshots/sign-in.png) | ![Agent consent screen](docs/screenshots/agent-consent.png) |
@@ -30,7 +32,7 @@ Other scripts:
 
 | Command | What it does |
 | --- | --- |
-| `pnpm seed [--pace=fast\|demo\|slow] [--no-decide] [--yard=id]` | Demo story for the video: 4 agents, small commits pushed concurrently, a claim overlap, a change overlap, reviews, and an assembled decision. |
+| `pnpm seed [--pace=fast\|demo\|slow] [--no-decide] [--yard=id] [--name="…"]` | Demo story for the video: 4 agents, small commits pushed concurrently, a claim overlap, a change overlap, reviews, and an assembled decision. |
 | `pnpm e2e [--cleanup]` | Runs the seed and asserts 30 things: fan-out, overlaps, git-sourced intents, reviews, decision, MCP tool parity, permissions (agents can't decide, can't touch other tasks, fork tokens can't reach the base repo), GitHub sign-in through emulate, MCP OAuth for both kinds of seat, and cron cleanup. |
 | `pnpm bench:fork [--levels=1,5,20,50 --rounds=3]` | Fork latency at 1/5/20/50 concurrent forks, p50/p95/p99. |
 | `pnpm bench:events [--pushes=20] [--k2]` | `git push` → event on a WebSocket (what the UI sees); optional K2 spike numbers. |
@@ -142,13 +144,15 @@ People sign in with **GitHub** or **Google** through [Better Auth](https://www.b
 
 ### For humans
 
+- **Overview** (home): every yard you belong to on the left, with open tasks, agents working and last activity; the selected yard's overview on the right: live status, open tasks / agents working / overlaps / decided, tasks, agents on open tasks, activity and the base branch. Picking a yard (or `j`/`k`) swaps the overview in place; each is a URL (`/y/<yard>`).
 - **Task view**: one card per fork — agent name *and* initials with a stable color (never color alone), status, intent summary, review score, files and +/−, preview link, overlap count.
 - **File tree** (`@pierre/trees`): the union of files touched across forks, each row with the initials of every agent that touched it and ⚠ when more than one did.
 - **Diffs** (`@pierre/diffs`): split/unified, word-level highlights, syntax highlighting, collapsed unchanged regions, files mounted lazily as you scroll. Each hunk is labeled with its agent and intent.
 - **Compare** a file across all agents, side by side against base. **Decide** by winner or hunk assembly, with a preview before applying.
-- **Timeline** of yard events, filterable by agent and kind; everything updates live over the yard WebSocket.
-- **Keyboard**: ⌘K / Ctrl+K command palette, `[` `]` between agents, `1`–`9` to jump to a fork, `j` `k` between hunks, `a` `c` `d` for views, `s` split, `w` wrap, `t` timeline.
+- **Activity** tab: every event on the task, filterable by agent and kind (virtualized); everything updates live over the yard WebSocket.
+- **Keyboard**: ⌘K / Ctrl+K command palette, `[` `]` between agents, `1`–`9` to jump to a fork, `j` `k` between hunks (between yards on the overview), `a` `c` `l` `d` for Changes / Compare / Activity / Decide, `s` split, `w` wrap, `n` new task. Shortcuts are TanStack Hotkeys and are ignored while typing.
 - **Theme**: light / dark / system, remembered; Kumo tokens, diffs and the tree all follow the same mode.
+- **Stack**: React with **TanStack** Router (typed routes; a task's agent/file/view live in the URL), Query (all server state; the yard WebSocket appends events and invalidates, debounced with Pacer), Table (benchmarks), Form (create yard/task, validated with zod), Hotkeys (every shortcut) and Virtual (activity feed). Styling is **Tailwind** utilities on theme tokens; Kumo supplies dialogs, selects, tabs, toasts and the command palette.
 - **Design**: the look follows [`DESIGN.md`](DESIGN.md) — a Vercel-inspired system (Inter for a Cloudflare-like voice, Geist Mono for code, ink-on-near-white, hairline cards with stacked shadows, mono eyebrows). Its tokens are mapped onto Kumo's theme variables in `apps/web/src/styles.css`, so Kumo components render in that language; app-specific rules are at the end of DESIGN.md.
 
 ## Numbers

@@ -62,17 +62,7 @@ export function FileDiff({
   const input = oldFile && newFile ? { oldFile, newFile } : oldFile ? { oldFile, newFile: null } : { oldFile: null, newFile: newFile! };
 
   return (
-    <div
-      className="overflow-hidden fy-card"
-      style={
-        {
-          "--diffs-light-bg": "var(--fy-surface)",
-          "--diffs-dark-bg": "var(--fy-surface)",
-          "--diffs-font-family": "var(--font-mono)",
-          "--diffs-font-fallback": "ui-monospace, monospace",
-        } as React.CSSProperties
-      }
-    >
+    <div className="overflow-hidden rounded-lg bg-surface shadow-card [--diffs-dark-bg:var(--color-surface)] [--diffs-font-fallback:ui-monospace,monospace] [--diffs-font-family:var(--font-mono)] [--diffs-light-bg:var(--color-surface)]">
       {header}
       <MultiFileDiff<HunkMeta, undefined>
         {...input}
@@ -85,17 +75,13 @@ export function FileDiff({
         }}
         lineAnnotations={annotations}
         renderAnnotation={(a) => (
-          <div
-            data-hunk={a.metadata.hunkId}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs"
-            style={{ background: "var(--fy-surface-2)", borderTop: "1px solid var(--fy-border)", borderBottom: "1px solid var(--fy-border)", fontFamily: "var(--font-sans)" }}
-          >
+          <div data-hunk={a.metadata.hunkId} className="flex items-center gap-2 border-y border-line bg-surface-2 px-3 py-1.5 font-sans text-xs">
             <AgentBadge agent={a.metadata.agent} size={16} />
             <span className="font-medium">{a.metadata.agent.name}</span>
-            <span className="font-mono text-kumo-subtle">
+            <span className="font-mono text-body">
               hunk {a.metadata.index}/{a.metadata.total}
             </span>
-            {a.metadata.note && <span className="truncate text-kumo-subtle">— {a.metadata.note}</span>}
+            {a.metadata.note && <span className="truncate text-body">— {a.metadata.note}</span>}
             <span className="ml-auto">{renderHunkExtra?.(byId.get(a.metadata.hunkId)!)}</span>
           </div>
         )}

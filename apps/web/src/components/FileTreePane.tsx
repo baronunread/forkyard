@@ -77,7 +77,7 @@ function TreeInner({
         const ag = data.current.agents.get(a.agentId);
         return { text: `${i ? "\u00a0" : ""}${ag?.initials ?? "?"}`, color: ag ? colorByHex(ag.color).hex : undefined };
       });
-      if (f.overlap) parts.push({ text: "\u00a0⚠", color: "var(--fy-overlap)" });
+      if (f.overlap) parts.push({ text: "\u00a0⚠", color: "var(--color-overlap)" });
       const names = f.agents.map((a) => data.current.agents.get(a.agentId)?.name ?? a.agentId).join(", ");
       return { text: parts.map((p) => p.text).join(""), parts, title: f.overlap ? `Overlap: touched by ${names}` : `Touched by ${names}` };
     },
@@ -101,13 +101,13 @@ function TreeInner({
       style={
         {
           height: "100%",
-          "--trees-bg-override": "var(--fy-surface)",
-          "--trees-fg-override": "var(--fy-fg)",
-          "--trees-fg-muted-override": "var(--fy-muted)",
-          "--trees-selected-bg-override": "var(--fy-selected)",
-          "--trees-border-color-override": "var(--fy-border)",
-          "--trees-search-bg-override": "var(--fy-surface-2)",
-          "--trees-search-fg-override": "var(--fy-fg)",
+          "--trees-bg-override": "var(--color-surface)",
+          "--trees-fg-override": "var(--color-fg)",
+          "--trees-fg-muted-override": "var(--color-muted)",
+          "--trees-selected-bg-override": "var(--color-selected)",
+          "--trees-border-color-override": "var(--color-line)",
+          "--trees-search-bg-override": "var(--color-surface-2)",
+          "--trees-search-fg-override": "var(--color-fg)",
           "--trees-font-family-override": "var(--font-sans)",
           "--trees-font-size-override": "13px",
         } as React.CSSProperties
