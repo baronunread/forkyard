@@ -1,5 +1,6 @@
 import { DropdownMenu } from "@cloudflare/kumo";
 import { MagnifyingGlass } from "@phosphor-icons/react";
+import { useState } from "react";
 import { navigate, type Route } from "../lib/router";
 import { useSession } from "../lib/session";
 import { useTheme, type ThemePref } from "../lib/theme";
@@ -25,7 +26,9 @@ function Slash() {
 }
 
 function Avatar({ name, url }: { name: string; url: string | null }) {
-  if (url) return <img src={url} alt="" className="size-7 rounded-full" style={{ boxShadow: "0 0 0 1px var(--fy-border)" }} />;
+  const [broken, setBroken] = useState(false);
+  if (url && !broken)
+    return <img src={url} alt="" onError={() => setBroken(true)} className="size-7 rounded-full" style={{ boxShadow: "0 0 0 1px var(--fy-border)" }} />;
   return (
     <span className="flex size-7 items-center justify-center rounded-full text-xs font-medium" style={{ background: "var(--fy-ink)", color: "var(--fy-on-ink)" }}>
       {name.slice(0, 1).toUpperCase()}

@@ -742,7 +742,7 @@ The brand uses STACKED shadows — multiple small offsets layered to fake natura
 Forkyard is an app, not a marketing page, so it uses the in-product half of this system:
 
 - **Surfaces.** Page `canvas-soft` (`#fafafa`; dark `#000`), cards `canvas` (`#fff`; dark `#0a0a0a`) held by an inset hairline ring plus the Level 2 stacked shadow (`.fy-card`). No marketing mesh gradient anywhere in the app.
-- **Type.** Geist for everything, Geist Mono for code, hashes, file paths, numbers and section eyebrows (`.fy-eyebrow`: 12 px mono, uppercase, `mute`). Headings 600 with negative tracking; never 700.
+- **Type.** Inter (Variable) instead of Geist for everything, closer to Cloudflare's product typography (Forkyard is a Cloudflare-native tool); same weights and negative heading tracking. Geist Mono stays for code, hashes, file paths, numbers and section eyebrows (`.fy-eyebrow`: 12 px mono, uppercase, `mute`). Headings 600 with negative tracking; never 700.
 - **Buttons.** In-app scale only: 6 px radius (`rounded.sm`). Primary is ink (`.fy-primary`: `#171717` on light, `#ededed` with ink text on dark); secondary is white with a hairline.
 - **Status.** Vercel's deployment vocabulary: a coloured dot inside a hairline pill. Gray = queued/forking, amber = working, blue = pushed, cyan-green = reviewed ("Ready"), red = failed.
 - **Agent identity is the one exception to "no new accents".** Agents need distinct, stable colours, always paired with initials and name (never colour alone). The palette is drawn from the Geist scale (blue, violet, pink, amber, teal, red, green, purple, cyan, gray-blue).

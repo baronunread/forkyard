@@ -6,7 +6,8 @@
 @custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
 
 @theme {
-  --font-sans: "Geist Variable", Inter, system-ui, -apple-system, sans-serif;
+  /* Inter: the closest open face to Cloudflare's product type (dashboard, Kumo). */
+  --font-sans: "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
 }
 

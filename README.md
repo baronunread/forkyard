@@ -149,7 +149,7 @@ People sign in with **GitHub** or **Google** through [Better Auth](https://www.b
 - **Timeline** of yard events, filterable by agent and kind; everything updates live over the yard WebSocket.
 - **Keyboard**: ⌘K / Ctrl+K command palette, `[` `]` between agents, `1`–`9` to jump to a fork, `j` `k` between hunks, `a` `c` `d` for views, `s` split, `w` wrap, `t` timeline.
 - **Theme**: light / dark / system, remembered; Kumo tokens, diffs and the tree all follow the same mode.
-- **Design**: the look follows [`DESIGN.md`](DESIGN.md) — a Vercel-inspired system (Geist / Geist Mono, ink-on-near-white, hairline cards with stacked shadows, mono eyebrows). Its tokens are mapped onto Kumo's theme variables in `apps/web/src/styles.css`, so Kumo components render in that language; app-specific rules are at the end of DESIGN.md.
+- **Design**: the look follows [`DESIGN.md`](DESIGN.md) — a Vercel-inspired system (Inter for a Cloudflare-like voice, Geist Mono for code, ink-on-near-white, hairline cards with stacked shadows, mono eyebrows). Its tokens are mapped onto Kumo's theme variables in `apps/web/src/styles.css`, so Kumo components render in that language; app-specific rules are at the end of DESIGN.md.
 
 ## Numbers
 
