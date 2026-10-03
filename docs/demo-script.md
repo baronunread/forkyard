@@ -37,6 +37,19 @@ pnpm seed           # demo pacing; add --no-decide to decide on camera
 - Click `src/todos.ts` in the tree, press `c`: Ada (validate in the domain) next to Cyd (normalize and de-dupe), each against base.
 - Toggle split/unified (`s`). Open ⌘K and jump to a file.
 
+## 4b. Swarm (1.5 min)
+
+In the terminal:
+
+```sh
+pnpm swarm --agents=500 --tasks=5 --rounds=5 --think=4000
+```
+
+- Point at the log: 500 forks ready in a few seconds, then rounds of real pushes.
+- In the UI, open the new yard (`Swarm · 500 agents`). The **Pulse** climbs past a thousand pushes a minute; reviews show as running and queued; **Hot files** ranks the files the most agents collide on (`package.json`, `README.md`).
+- Open a task: 100 agents as a leaderboard. Sort by score, filter by status, click a row to jump to that agent's diff. Compare `README.md`: the best-reviewed versions first, "show all" for the rest.
+- Say the numbers: a thousand agents locally, every push on the live feed in about a second; on Cloudflare, Artifacts serves the git and the review cap goes up.
+
 ## 5. Decide (1.5 min)
 
 If you ran `--no-decide`:

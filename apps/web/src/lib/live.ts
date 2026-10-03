@@ -1,8 +1,9 @@
 import type { ServerMessage, YardEvent } from "@forkyard/shared";
-import { useDebouncedCallback } from "@tanstack/react-pacer";
+import { useThrottledCallback } from "@tanstack/react-pacer";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { getKey } from "./api";
+import { recordPulse } from "./pulse";
 import { taskEventsQuery } from "./queries";
 
 export type LiveState = "connecting" | "live" | "offline";
@@ -71,20 +72,22 @@ export function useYardLive(yardId: string | null, onEvent: (e: YardEvent) => vo
 
 /**
  * Keep TanStack Query in sync with a yard's live stream: events for a task
- * are appended to its cached event log, and bursts of events refetch the
- * yard's queries once (debounced) instead of per event.
+ * are appended to its cached event log, and the yard's queries refetch at
+ * most once a second while events keep coming (throttled, trailing). A
+ * debounce would never fire under a swarm's constant stream.
  */
 export function useYardSync(yardId: string | null, onEvent?: (e: YardEvent) => void): LiveState {
   const qc = useQueryClient();
-  const refresh = useDebouncedCallback(
+  const refresh = useThrottledCallback(
     (yard: string) => {
       void qc.invalidateQueries({ queryKey: ["yard", yard], predicate: (q) => q.queryKey[q.queryKey.length - 1] !== "events" });
       void qc.invalidateQueries({ queryKey: ["yards"] });
     },
-    { wait: 300 },
+    { wait: 1000, leading: true, trailing: true },
   );
   return useYardLive(yardId, (e) => {
     if (!yardId) return;
+    recordPulse(yardId, e);
     if (e.taskId)
       qc.setQueryData(taskEventsQuery(yardId, e.taskId).queryKey, (prev) => (prev && !prev.some((x) => x.seq === e.seq) ? [...prev, e] : prev));
     refresh(yardId);

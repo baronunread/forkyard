@@ -1,8 +1,12 @@
 import { Empty, Loader } from "@cloudflare/kumo";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import type { Compare, TaskDetail } from "../lib/api";
 import { fileCompareQuery, headsOf } from "../lib/queries";
-import { AgentChip } from "./AgentChip";
+import { AgentChip, AgentStack } from "./AgentChip";
+import { Button } from "./ui";
+
+const COMPARE_MAX = 6;
 import { FileDiff, type DiffStyle } from "./DiffView";
 
 /** Pick a file; see how every agent changed it, side by side against base. */
@@ -23,6 +27,7 @@ export function CompareView({
   diffStyle: DiffStyle;
   wrap: boolean;
 }) {
+  const [showAll, setShowAll] = useState(false);
   const { data, error } = useQuery({ ...fileCompareQuery(yard, task, path ?? "", headsOf(detail.agents)), enabled: !!path });
 
   if (!path) {
@@ -43,23 +48,23 @@ export function CompareView({
       </div>
     );
 
-  const changed = data.versions.filter((v) => v.status !== "unchanged");
-  const unchanged = data.versions.filter((v) => v.status === "unchanged");
   const agentById = new Map(detail.agents.map((a) => [a.id, a]));
+  // Best-reviewed first; a hot file in a swarm can have hundreds of versions, so show a few.
+  const score = (id: string) => agentById.get(id)?.review?.score ?? -1;
+  const allChanged = data.versions.filter((v) => v.status !== "unchanged").sort((a, b) => score(b.agentId) - score(a.agentId));
+  const changed = showAll ? allChanged : allChanged.slice(0, COMPARE_MAX);
+  const unchanged = data.versions.filter((v) => v.status === "unchanged");
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-mono font-semibold">{path}</span>
         <span className="text-body">
-          changed by {changed.length} of {data.versions.length} agents
+          changed by {allChanged.length} of {data.versions.length} agents
         </span>
         {unchanged.length > 0 && (
-          <span className="flex items-center gap-1 text-xs text-body">
-            unchanged in:
-            {unchanged.map((v) => {
-              const a = agentById.get(v.agentId);
-              return a ? <AgentChip key={a.id} agent={a} size={16} /> : null;
-            })}
+          <span className="flex items-center gap-1.5 text-xs text-body">
+            unchanged in
+            <AgentStack agents={unchanged.map((v) => agentById.get(v.agentId)).filter((a): a is NonNullable<typeof a> => !!a)} max={6} size={18} />
           </span>
         )}
       </div>
@@ -92,6 +97,13 @@ export function CompareView({
           );
         })}
       </div>
+      {allChanged.length > COMPARE_MAX && (
+        <div className="flex justify-center">
+          <Button size="sm" onClick={() => setShowAll(!showAll)}>
+            {showAll ? `Show the top ${COMPARE_MAX}` : `Show all ${allChanged.length} versions`}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -11,6 +11,8 @@ Built for Cloudflare's [“Build the next Git platform”](https://blog.cloudfla
 | Task: agents, file tree, attributed diffs | Overview in dark mode |
 | --- | --- |
 | ![Task view](docs/screenshots/task-dark.png) | ![Overview, dark](docs/screenshots/overview-dark.png) |
+| **A 500-agent swarm: live pulse, hot files** | **100 agents on one task: leaderboard + compare** |
+| ![Swarm overview](docs/screenshots/swarm-overview.png) | ![Swarm task](docs/screenshots/swarm-task.png) |
 | **Compare one file across agents** | **Decide: assemble hunks, preview, apply** |
 | ![Compare mode](docs/screenshots/compare-light.png) | ![Decide mode](docs/screenshots/decide-dark.png) |
 | **People sign in with GitHub or Google** | **Agents connect over OAuth and get a seat** |
@@ -34,6 +36,7 @@ Other scripts:
 | --- | --- |
 | `pnpm seed [--pace=fast\|demo\|slow] [--no-decide] [--yard=id] [--name="…"]` | Demo story for the video: 4 agents, small commits pushed concurrently, a claim overlap, a change overlap, reviews, and an assembled decision. |
 | `pnpm e2e [--cleanup]` | Runs the seed and asserts 30 things: fan-out, overlaps, git-sourced intents, reviews, decision, MCP tool parity, permissions (agents can't decide, can't touch other tasks, fork tokens can't reach the base repo), GitHub sign-in through emulate, MCP OAuth for both kinds of seat, and cron cleanup. |
+| `pnpm swarm [--agents=200 --tasks=4 --rounds=3 --concurrency=64]` | Hundreds or thousands of agents on one yard: each gets its own fork and pushes real commits over git smart HTTP, working lanes of the codebase with shared hot files, so collisions are real. Reports fan-out, push → visible, push → reviewed, pushes/s and overlaps. |
 | `pnpm bench:fork [--levels=1,5,20,50 --rounds=3]` | Fork latency at 1/5/20/50 concurrent forks, p50/p95/p99. |
 | `pnpm bench:events [--pushes=20] [--k2]` | `git push` → event on a WebSocket (what the UI sees); optional K2 spike numbers. |
 | `pnpm cleanup [--ttl=0] [--abandon-open=72]` | Delete stale forks (run before Artifacts billing starts on **October 15**). |
@@ -117,6 +120,18 @@ flowchart LR
 - **Decide.** Pick a winner, or select hunks from several forks; Forkyard previews the combined result with conflicts, then writes one commit to the base branch with a compare-and-swap ref update and `Co-authored-by` lines for the agents. The Artifacts binding has no write API, so this uses a small git smart-HTTP client (`apps/worker/src/git/`).
 - **Cleanup.** An hourly cron deletes forks (and preview branches) of decided or abandoned tasks after `FORK_TTL_HOURS`, revokes their keys, and logs `fork.deleted`. `pnpm cleanup` sweeps on demand.
 
+### At swarm scale
+
+The brief is hundreds of thousands of agents. What makes a single yard hold a thousand at once:
+
+- **Overlap detection is indexed, not pairwise.** Path → agents and pattern → agents maps instead of comparing every pair of agents on every push: a thousand agents on one task recompute in about 6 ms (`packages/shared/test/overlaps-scale.test.ts` checks it against the old pairwise version on random input).
+- **Reviews are scheduled, not fired per push.** One review per agent at a time (a push during a review is covered by the next one, at the newest head), at most `REVIEW_CONCURRENCY` per yard, the rest queued in the yard's Durable Object and drained by its alarm. The yard status shows reviews running and queued.
+- **Events are batched.** The Artifacts event queue is consumed in batches of up to 100, routed concurrently; order doesn't matter because each push reads the fork's real head.
+- **The shared log doesn't drown.** An overlap is logged when it starts and when it crosses a size milestone (5, 10, 25, 50, 100… agents); every agent that joins it is still told directly over its socket.
+- **The UI changes shape past 8 agents.** A task shows a sortable, filterable, virtualized leaderboard instead of cards; the overview adds a live pulse (pushes per minute, reviews running and queued), the files the most agents are colliding on, and capped avatar stacks; Compare and Decide show the best-reviewed versions first.
+
+One Durable Object per yard is the unit of coordination, so yards scale out independently; past a few thousand concurrent agents in one yard, the next step is a Durable Object per task, with the yard aggregating.
+
 ### For agents
 
 Add `/mcp` to any MCP client (Claude Code, Codex, Cursor, …). It is an OAuth 2.1 protected resource: the client discovers the authorization server, registers itself, and a person signs in and chooses on the consent screen whether the agent acts **as them** (their yards; it can create tasks and decide) or as **one agent seat** on an open task. The authorization server is Better Auth's MCP plugin (JWT access tokens bound to `<origin>/mcp`). Headless agents can skip OAuth with the per-agent key handed out when a task is created (`Authorization: Bearer fy_…`). `/llms.txt` and `/AGENTS.md` explain the workflow.
@@ -145,6 +160,7 @@ People sign in with **GitHub** or **Google** through [Better Auth](https://www.b
 ### For humans
 
 - **Overview** (home): every yard you belong to on the left, with open tasks, agents working and last activity; the selected yard's overview on the right: live status, open tasks / agents working / overlaps / decided, tasks, agents on open tasks, activity and the base branch. Picking a yard (or `j`/`k`) swaps the overview in place; each is a URL (`/y/<yard>`).
+- **Swarm views**: past 8 agents a task becomes a leaderboard (TanStack Table + Virtual: sort by score, changes, overlaps, status; filter by name or intent; status counts as filters). The overview shows the yard's pulse (pushes/min with a two-minute sparkline, reviews running and queued) and its hot files.
 - **Task view**: one card per fork — agent name *and* initials with a stable color (never color alone), status, intent summary, review score, files and +/−, preview link, overlap count.
 - **File tree** (`@pierre/trees`): the union of files touched across forks, each row with the initials of every agent that touched it and ⚠ when more than one did.
 - **Diffs** (`@pierre/diffs`): split/unified, word-level highlights, syntax highlighting, collapsed unchanged regions, files mounted lazily as you scroll. Each hunk is labeled with its agent and intent.
@@ -158,6 +174,16 @@ People sign in with **GitHub** or **Google** through [Better Auth](https://www.b
 ## Numbers
 
 Measured with the scripts above. **The local rows use the Artifacts emulator under `wrangler dev` and only show Forkyard's own overhead**; production rows need an Artifacts beta account and are produced by the same scripts (they land in `bench-results/` and on the in-app Benchmarks page).
+
+**Swarm** (`pnpm swarm`, every agent a real git client with its own fork and scoped token; 0 errors in both runs):
+
+| Agents · tasks | Fan-out: all forks ready | Pushes | Push → visible on the live feed (p50 / p95) | Push → reviewed (p50) | Environment |
+| --- | --- | --- | --- | --- | --- |
+| 200 · 4 | 2.0 s | 600 | 1.4 s / 2.4 s | 17 s | local emulator |
+| 1,000 · 10 | 10.6 s | 2,000 (29/s) | 1.05 s / 2.3 s | 79 s | local emulator |
+| 1,000+ | _pending a deployment run_ | | | | Cloudflare |
+
+Locally every git operation of every agent goes through one emulator Durable Object and reviews run in the local Workflows engine (capped at 16 at a time), so these are a floor; on Cloudflare, Artifacts serves git and the review cap is raised (`REVIEW_CONCURRENCY`). "Reviewed" means the agent's diff, footprint and overlap check have landed; reviews coalesce, so a burst of pushes from one agent is reviewed once at its newest head.
 
 **Fork latency** (`pnpm bench:fork`, forks issued concurrently inside the Worker):
 

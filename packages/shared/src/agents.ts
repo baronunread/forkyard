@@ -49,6 +49,9 @@ export function initialsFor(name: string): string {
     .filter(Boolean);
   if (words.length === 0) return "??";
   if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
+  // Numbered agents ("Agent 0901", "Worker 12"): the number tells them apart, not the word.
+  const last = words.at(-1)!;
+  if (/^\d+$/.test(last)) return last.slice(-2).padStart(2, "0");
   return (words[0]![0]! + words[1]![0]!).toUpperCase();
 }
 

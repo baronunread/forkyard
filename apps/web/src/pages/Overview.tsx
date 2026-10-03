@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useHotkeys } from "@tanstack/react-hotkeys";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { AgentBadge } from "../components/AgentChip";
+import { AgentBadge, AgentStack } from "../components/AgentChip";
 import { CreateTaskDialog, CreateYardDialog } from "../components/CreateDialogs";
 import { STATUS, TaskStatusBadge } from "../components/Status";
 import { Button, Card, cx, Dot, Eyebrow, Kbd, Stat } from "../components/ui";
@@ -13,6 +13,7 @@ import type { YardList, YardStatus } from "../lib/api";
 import { useCommands } from "../lib/commands";
 import { ago } from "../lib/format";
 import { useYardSync, type LiveState } from "../lib/live";
+import { usePulse } from "../lib/pulse";
 import { baseLogQuery, yardQuery, yardsQuery } from "../lib/queries";
 
 /**
@@ -243,22 +244,34 @@ function YardOverview({ yard }: { yard: string }) {
               ))}
             </Card>
           )}
+          {s.overlaps.length > 0 && <HotFiles status={s} />}
           {working.length > 0 && (
             <>
               <div className="mt-6 mb-2 flex h-8 items-center justify-between">
                 <Eyebrow>Agents on open tasks</Eyebrow>
                 <span className="text-xs text-muted">{working.length} working</span>
               </div>
-              <Card className="divide-y divide-line overflow-hidden">
-                {working.map((a) => (
-                  <AgentRow key={`${a.taskId}/${a.id}`} yard={yard} agent={a} task={s.tasks.find((t) => t.id === a.taskId)} overlaps={s.overlaps} />
-                ))}
+              <Card className="overflow-hidden">
+                {working.length > AGENT_LIST_MAX && <StatusBar agents={working} />}
+                <div className="divide-y divide-line">
+                  {mostInteresting(working, s.overlaps)
+                    .slice(0, AGENT_LIST_MAX)
+                    .map((a) => (
+                      <AgentRow key={`${a.taskId}/${a.id}`} yard={yard} agent={a} task={s.tasks.find((t) => t.id === a.taskId)} overlaps={s.overlaps} />
+                    ))}
+                </div>
+                {working.length > AGENT_LIST_MAX && (
+                  <p className="border-t border-line px-5 py-2.5 text-xs text-body">
+                    Showing the {AGENT_LIST_MAX} agents in the most overlaps, of {working.length}. Open a task for its full leaderboard.
+                  </p>
+                )}
               </Card>
             </>
           )}
         </section>
 
         <aside className="space-y-6">
+          <SwarmPulse yard={yard} reviews={s.reviews} pulse={s.pulse} />
           <section aria-label="Recent activity">
             <div className="mb-2 flex h-8 items-center">
               <Eyebrow>Activity</Eyebrow>
@@ -307,18 +320,126 @@ function TaskRow({ yard, task, status, now }: { yard: string; task: YardStatus["
             </span>
           )}
         </div>
-        <div className="mt-2 flex -space-x-1">
-          {agents.map((a) => (
-            <span key={a.id} className="rounded-full ring-2 ring-surface" title={`${a.name} · ${a.status}`}>
-              <AgentBadge agent={a} size={22} />
-            </span>
-          ))}
+        <div className="mt-2 flex items-center gap-2">
+          <AgentStack agents={agents} max={10} />
+          {agents.length > 10 && <span className="text-xs text-muted">{agents.length} agents</span>}
         </div>
       </div>
       <TaskStatusBadge status={task.status} />
       <span className="w-16 text-right text-xs text-body">{ago(task.decidedAt ?? task.createdAt, now)}</span>
       <CaretRight className="text-muted" />
     </Link>
+  );
+}
+
+const AGENT_LIST_MAX = 12;
+
+/** Agents worth a look first: the ones in the most overlaps, then the newest. */
+function mostInteresting(agents: YardStatus["agents"], overlaps: YardStatus["overlaps"]) {
+  const n = new Map<string, number>();
+  for (const o of overlaps) for (const a of o.agents) n.set(`${o.taskId}/${a}`, (n.get(`${o.taskId}/${a}`) ?? 0) + 1);
+  return [...agents].sort((a, b) => (n.get(`${b.taskId}/${b.id}`) ?? 0) - (n.get(`${a.taskId}/${a.id}`) ?? 0) || b.createdAt.localeCompare(a.createdAt));
+}
+
+/** How a crowd of agents splits across statuses, as one bar with a legend. */
+function StatusBar({ agents }: { agents: YardStatus["agents"] }) {
+  const order = ["forking", "ready", "working", "pushed", "reviewed", "failed"];
+  const counts = order.map((st) => [st, agents.filter((a) => a.status === st).length] as const).filter(([, n]) => n > 0);
+  return (
+    <div className="border-b border-line px-5 py-3">
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-line">
+        {counts.map(([st, n]) => (
+          <span key={st} style={{ width: `${(n / agents.length) * 100}%`, background: (STATUS[st] ?? STATUS.ready!).color }} title={`${n} ${st}`} />
+        ))}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-body">
+        {counts.map(([st, n]) => (
+          <span key={st} className="inline-flex items-center gap-1.5">
+            <Dot color={(STATUS[st] ?? STATUS.ready!).color} />
+            <span className="tabular-nums text-fg">{n}</span> {(STATUS[st]?.label ?? st).toLowerCase()}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Files the most agents collide on, across the yard's open tasks. */
+function HotFiles({ status }: { status: YardStatus }) {
+  const byPath = new Map<string, { agents: Set<string>; tasks: Set<string> }>();
+  for (const o of status.overlaps) {
+    let e = byPath.get(o.path);
+    if (!e) byPath.set(o.path, (e = { agents: new Set(), tasks: new Set() }));
+    for (const a of o.agents) e.agents.add(`${o.taskId}/${a}`);
+    e.tasks.add(o.taskId);
+  }
+  const hot = [...byPath.entries()].sort((a, b) => b[1].agents.size - a[1].agents.size).slice(0, 8);
+  const max = hot[0]?.[1].agents.size ?? 1;
+  return (
+    <>
+      <div className="mt-6 mb-2 flex h-8 items-center justify-between">
+        <Eyebrow>Hot files</Eyebrow>
+        <span className="text-xs text-muted">{byPath.size} files in overlaps</span>
+      </div>
+      <Card className="divide-y divide-line">
+        {hot.map(([path, e]) => (
+          <div key={path} className="grid grid-cols-[minmax(0,1fr)_160px_80px] items-center gap-4 px-5 py-2.5 text-[13px]">
+            <span className="truncate font-mono text-xs">{path}</span>
+            <span className="h-1.5 overflow-hidden rounded-full bg-line">
+              <span className="block h-full rounded-full bg-overlap" style={{ width: `${Math.max(4, (e.agents.size / max) * 100)}%` }} />
+            </span>
+            <span className="text-right text-xs text-body tabular-nums">
+              {e.agents.size} agents{e.tasks.size > 1 ? ` · ${e.tasks.size} tasks` : ""}
+            </span>
+          </div>
+        ))}
+      </Card>
+    </>
+  );
+}
+
+/** The yard's heartbeat from the live stream: pushes, reviews, and the review queue. */
+function SwarmPulse({ yard, reviews, pulse }: { yard: string; reviews: YardStatus["reviews"]; pulse: YardStatus["pulse"] }) {
+  // Rates and buckets come from the server's event log (right on first load); the
+  // live events/second is counted here from the socket.
+  const live = usePulse(yard);
+  const p = { ...pulse, eventsPerSec: live.eventsPerSec };
+  const peak = Math.max(1, ...p.buckets);
+  const idle = p.pushesPerMin === 0 && reviews.running === 0 && reviews.queued === 0;
+  return (
+    <section aria-label="Live pulse">
+      <div className="mb-2 flex h-8 items-center justify-between">
+        <Eyebrow>Pulse</Eyebrow>
+        <span className="font-mono text-[11px] text-muted">last 2 min</span>
+      </div>
+      <Card className="p-4">
+        <div className="flex items-baseline gap-2">
+          <span className="text-stat tabular-nums">{p.pushesPerMin}</span>
+          <span className="text-xs text-body">pushes / min</span>
+          <span className="ml-auto font-mono text-xs text-muted tabular-nums">{p.eventsPerSec} ev/s</span>
+        </div>
+        <svg viewBox={`0 0 ${p.buckets.length * 6} 32`} className="mt-3 h-8 w-full" preserveAspectRatio="none" aria-hidden>
+          {p.buckets.map((n, i) => (
+            <rect key={i} x={i * 6} y={32 - (n / peak) * 30} width={4} height={Math.max(1, (n / peak) * 30)} rx={1} className={n ? "fill-ink" : "fill-line"} />
+          ))}
+        </svg>
+        <div className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-3 text-xs">
+          <span>
+            <span className="block font-mono text-fg tabular-nums">{p.reviewsPerMin}</span>
+            <span className="text-body">reviews / min</span>
+          </span>
+          <span>
+            <span className="block font-mono text-fg tabular-nums">{reviews.running}</span>
+            <span className="text-body">reviewing</span>
+          </span>
+          <span>
+            <span className="block font-mono text-fg tabular-nums">{reviews.queued}</span>
+            <span className="text-body">queued</span>
+          </span>
+        </div>
+        {idle && <p className="mt-3 text-xs text-muted">Quiet. This fills in live as agents push.</p>}
+      </Card>
+    </section>
   );
 }
 

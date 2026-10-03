@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useHotkeys, type UseHotkeyDefinition } from "@tanstack/react-hotkeys";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AgentBoard } from "../components/AgentBoard";
 import { AgentStrip } from "../components/AgentStrip";
 import { AgentView } from "../components/AgentView";
 import { CompareView } from "../components/CompareView";
@@ -20,6 +21,9 @@ import { TASK_VIEWS, type TaskSearch } from "../lib/search";
 import { toasts } from "../lib/toast";
 
 type View = (typeof TASK_VIEWS)[number];
+
+/** Past this many agents, the task shows a leaderboard instead of one card per agent. */
+const SWARM_THRESHOLD = 8;
 
 /** Classes put on the focused hunk banner by j / k. */
 const HUNK_FOCUS = ["outline-2", "outline-offset-2", "outline-link", "rounded-md"];
@@ -41,7 +45,8 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
   }, []);
 
   const live = useYardSync(yard, (e) => {
-    if (e.type === "overlap.detected" && e.taskId === task)
+    // On a swarm-sized task overlaps are constant; the leaderboard and hot files carry them instead.
+    if (e.type === "overlap.detected" && e.taskId === task && (detail.data?.agents.length ?? 0) <= SWARM_THRESHOLD)
       toasts.add({ title: "Overlap", description: `${e.data.overlap.path} — ${e.data.overlap.agents.join(" & ")}`, variant: "warning" });
   });
 
@@ -140,7 +145,11 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
             </Button>
           )}
         </header>
-        <AgentStrip detail={d} selected={view === "changes" ? (selectedAgent?.id ?? null) : null} onSelect={(id) => go({ agent: id, view: undefined })} />
+        {agents.length > SWARM_THRESHOLD ? (
+          <AgentBoard detail={d} compare={compare.data ?? null} selected={selectedAgent?.id ?? null} onSelect={(id) => go({ agent: id, view: undefined })} />
+        ) : (
+          <AgentStrip detail={d} selected={view === "changes" ? (selectedAgent?.id ?? null) : null} onSelect={(id) => go({ agent: id, view: undefined })} />
+        )}
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)] gap-6 px-6 pb-6">

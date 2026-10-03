@@ -47,3 +47,26 @@ export function AgentChip({
     </span>
   );
 }
+
+/** Overlapping badges for a group of agents, capped: a thousand-agent task shows a few and "+N". */
+export function AgentStack({ agents, max = 8, size = 22, title }: { agents: (AgentLike & { status?: string })[]; max?: number; size?: number; title?: string }) {
+  const shown = agents.slice(0, max);
+  const rest = agents.length - shown.length;
+  return (
+    <span className="flex items-center -space-x-1" title={title}>
+      {shown.map((a) => (
+        <span key={a.id} className="rounded-full ring-2 ring-surface" title={`${a.name}${a.status ? ` · ${a.status}` : ""}`}>
+          <AgentBadge agent={a} size={size} />
+        </span>
+      ))}
+      {rest > 0 && (
+        <span
+          className="relative inline-flex shrink-0 items-center justify-center rounded-full bg-surface-2 px-1.5 font-mono text-[11px] text-body ring-2 ring-surface"
+          style={{ height: size, minWidth: size }}
+        >
+          +{rest}
+        </span>
+      )}
+    </span>
+  );
+}

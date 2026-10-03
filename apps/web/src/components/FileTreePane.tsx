@@ -73,12 +73,17 @@ function TreeInner({
     renderRowDecoration: ({ item }) => {
       const f = data.current.files.get(item.path);
       if (!f) return null;
-      const parts = f.agents.map((a, i) => {
-        const ag = data.current.agents.get(a.agentId);
-        return { text: `${i ? "\u00a0" : ""}${ag?.initials ?? "?"}`, color: ag ? colorByHex(ag.color).hex : undefined };
-      });
+      // Up to three agents by initials; past that, a count (a hot file in a swarm has hundreds).
+      const parts =
+        f.agents.length <= 3
+          ? f.agents.map((a, i) => {
+              const ag = data.current.agents.get(a.agentId);
+              return { text: `${i ? "\u00a0" : ""}${ag?.initials ?? "?"}`, color: ag ? colorByHex(ag.color).hex : undefined };
+            })
+          : [{ text: `×${f.agents.length}`, color: undefined as string | undefined }];
       if (f.overlap) parts.push({ text: "\u00a0⚠", color: "var(--color-overlap)" });
-      const names = f.agents.map((a) => data.current.agents.get(a.agentId)?.name ?? a.agentId).join(", ");
+      const all = f.agents.map((a) => data.current.agents.get(a.agentId)?.name ?? a.agentId);
+      const names = all.length > 12 ? `${all.slice(0, 12).join(", ")} and ${all.length - 12} more` : all.join(", ");
       return { text: parts.map((p) => p.text).join(""), parts, title: f.overlap ? `Overlap: touched by ${names}` : `Touched by ${names}` };
     },
   });

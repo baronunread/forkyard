@@ -12,6 +12,8 @@ import { Pill, Score } from "./Status";
 import { Button, Card, cx } from "./ui";
 
 type Pick = "whole" | Set<string>;
+/** Forks shown as winner candidates before "Show all" (best-reviewed first). */
+const WINNER_MAX = 12;
 const RESULT: AgentLike = { id: "result", name: "Combined result", initials: "∑", color: "#71717a" };
 
 /**
@@ -40,6 +42,7 @@ export function DecideView({
   const [picks, setPicks] = useState<Map<string, Map<string, Pick>>>(new Map());
   const [message, setMessage] = useState(detail.task.title);
   const [confirm, setConfirm] = useState(false);
+  const [showAllForks, setShowAllForks] = useState(false);
   const previewM = useMutation({
     mutationFn: (json: DecideInput) => call(taskRoute.decide.preview.$post({ param: { yard, task }, json })),
     onError: (e) => toastError(e, "Preview failed"),
@@ -109,7 +112,7 @@ export function DecideView({
       {mode === "winner" ? (
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {ranked.length === 0 && <p className="text-sm text-body">No fork has pushed yet.</p>}
-          {ranked.map((a) => {
+          {(showAllForks ? ranked : ranked.slice(0, WINNER_MAX)).map((a) => {
             const c = compare?.agents.find((x) => x.agent.id === a.id);
             const sel = winner === a.id;
             return (
@@ -131,6 +134,14 @@ export function DecideView({
               </button>
             );
           })}
+          {ranked.length > WINNER_MAX && (
+            <button
+              onClick={() => setShowAllForks(!showAllForks)}
+              className="rounded-lg p-3 text-sm text-body ring-1 ring-line ring-dashed hover:bg-hover"
+            >
+              {showAllForks ? `Show the top ${WINNER_MAX}` : `Show all ${ranked.length} forks`}
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">

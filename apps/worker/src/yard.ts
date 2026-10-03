@@ -53,6 +53,9 @@ interface SocketInfo {
 /** Overlap sizes worth a new entry in the shared log (it always starts at 2). */
 const OVERLAP_MILESTONES = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
 
+const PULSE_WINDOW_MS = 120_000;
+const PULSE_BUCKET_MS = 5_000;
+
 /** How often the alarm re-checks the review queue while reviews are waiting. */
 const REVIEW_TICK_MS = 500;
 
@@ -67,6 +70,8 @@ export interface YardStatus {
   connected: { ui: number; agents: number };
   /** The review scheduler: reviews in flight and agents waiting for one. */
   reviews: { running: number; queued: number };
+  /** Recent activity from the event log: pushes per bucket (oldest first) and per-minute rates. */
+  pulse: { buckets: number[]; bucketMs: number; pushesPerMin: number; reviewsPerMin: number; overlapsPerMin: number };
 }
 
 export interface PushInput {
@@ -97,6 +102,7 @@ export class Yard extends DurableObject<Env> {
         task_id TEXT, agent_id TEXT, data TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS events_task ON events (task_id, seq);
+      CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
       CREATE TABLE IF NOT EXISTS claims (
         task_id TEXT NOT NULL, agent_id TEXT NOT NULL, pattern TEXT NOT NULL, created_at TEXT NOT NULL,
         PRIMARY KEY (task_id, agent_id, pattern)
@@ -925,7 +931,35 @@ export class Yard extends DurableObject<Env> {
         running: Number(this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM reviews_inflight").one().n),
         queued: Number(this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM reviews_pending").one().n),
       },
+      pulse: this.pulse(),
     };
+  }
+
+  /** The last two minutes from the event log: pushes per 5 s bucket, and per-minute rates. */
+  private pulse(): YardStatus["pulse"] {
+    const nowMs = Date.now();
+    const since = new Date(nowMs - PULSE_WINDOW_MS).toISOString();
+    const rows = this.sql
+      .exec<{ ts: string; type: string }>("SELECT ts, type FROM events WHERE ts >= ? AND type IN ('push.received', 'review.completed', 'overlap.detected')", since)
+      .toArray();
+    const n = PULSE_WINDOW_MS / PULSE_BUCKET_MS;
+    const buckets = new Array<number>(n).fill(0);
+    const minuteAgo = nowMs - 60_000;
+    let pushesPerMin = 0;
+    let reviewsPerMin = 0;
+    let overlapsPerMin = 0;
+    for (const r of rows) {
+      const t = Date.parse(r.ts);
+      if (r.type === "push.received") {
+        const i = n - 1 - Math.floor((nowMs - t) / PULSE_BUCKET_MS);
+        if (i >= 0) buckets[i]!++;
+        if (t >= minuteAgo) pushesPerMin++;
+      } else if (t >= minuteAgo) {
+        if (r.type === "review.completed") reviewsPerMin++;
+        else overlapsPerMin++;
+      }
+    }
+    return { buckets, bucketMs: PULSE_BUCKET_MS, pushesPerMin, reviewsPerMin, overlapsPerMin };
   }
 
   async describe(since = 0, limit = 50): Promise<string[]> {
