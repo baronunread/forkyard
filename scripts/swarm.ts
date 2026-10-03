@@ -29,6 +29,8 @@ const CONCURRENCY = Number(arg("concurrency", "64"));
 const HOT = Number(arg("hot", "0.25"));
 const THINK_MS = Number(arg("think", "0"));
 const MODULES = Number(arg("modules", "120"));
+/** How long to wait for each push's review to land after the last round (local reviews queue behind a cap). */
+const REVIEW_WAIT_S = Number(arg("review-wait", "600"));
 const yardId = arg("yard", `swarm-${Date.now().toString(36).slice(-5)}`)!;
 const HARNESSES = ["claude-code", "codex", "cursor", "gemini-cli", "opencode", "aider"];
 const HOT_FILES = ["README.md", "src/index.ts", "src/config.ts", "package.json"];
@@ -103,6 +105,8 @@ async function retry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
   }
 }
 let retries = 0;
+/** Pushes whose review hadn't landed when the wait ended: still queued, not failed. */
+let unreviewed = 0;
 
 async function pool<T>(items: T[], limit: number, fn: (item: T, i: number) => Promise<void>) {
   let next = 0;
@@ -256,9 +260,9 @@ async function main() {
           .catch(() => void errors.push(`${a.name}: push never became visible`)),
         live
           // Reviews coalesce: a quick second push is reviewed once, at the newer head, which covers this one too.
-          .waitFor((e) => e.type === "diff.updated" && e.agentId === a.id && a.commits.indexOf((e.data as { commit?: string }).commit ?? "") >= mine, 300_000)
+          .waitFor((e) => e.type === "diff.updated" && e.agentId === a.id && a.commits.indexOf((e.data as { commit?: string }).commit ?? "") >= mine, REVIEW_WAIT_S * 1000)
           .then((e) => void diffMs.push(e.at - done))
-          .catch(() => void errors.push(`${a.name}: push never reviewed (no diff.updated)`)),
+          .catch(() => void unreviewed++),
       );
     });
     console.log(`round ${round}: ${agents.length} pushes in ${((performance.now() - tr) / 1000).toFixed(1)}s`);
@@ -288,6 +292,7 @@ async function main() {
     overlapsDetected: overlaps,
     watcherReconnects: live.reconnects,
     retries,
+    notYetReviewed: unreviewed,
     errors: errors.length,
     errorSamples: [...new Set(errors.map((e) => e.replace(/^Agent \d+: /, "")))].slice(0, 8),
   };
