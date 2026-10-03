@@ -1,0 +1,44 @@
+{
+  "at": "2026-10-03T16:53:44.599Z",
+  "target": "http://localhost:8787",
+  "mode": "local",
+  "yardId": "swarm-mrots",
+  "agents": 200,
+  "tasks": 4,
+  "rounds": 3,
+  "concurrency": 64,
+  "fanoutSeconds": 2.196,
+  "forkReadyMs": {
+    "n": 200,
+    "p50": 1002.7,
+    "p95": 1092.4,
+    "p99": 1093,
+    "max": 1093.1
+  },
+  "pushes": 600,
+  "pushesPerSecond": 42.3,
+  "pushMs": {
+    "n": 600,
+    "p50": 1250,
+    "p95": 2283.2,
+    "p99": 2916.7,
+    "max": 2920.7
+  },
+  "pushToVisibleMs": {
+    "n": 600,
+    "p50": 30625.1,
+    "p95": 31470.7,
+    "p99": 31639.8,
+    "max": 31726.9
+  },
+  "pushToDiffMs": {
+    "n": 600,
+    "p50": 15776,
+    "p95": 28111.6,
+    "p99": 30625,
+    "max": 31223
+  },
+  "eventsSeen": 2298,
+  "overlapsDetected": 347,
+  "errors": 0
+}

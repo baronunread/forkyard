@@ -27,6 +27,10 @@ export interface Env {
   ARTIFACT_EVENTS?: Queue;
   REVIEW_WORKFLOW: Workflow<ReviewParams>;
   AI?: Ai;
+  /** Reviews in flight per yard at once (default 16); the rest queue. */
+  REVIEW_CONCURRENCY?: string;
+  /** "off" skips the review pipeline on push (diagnostics; overlaps then come from claims only). */
+  REVIEWS?: string;
   REVIEW_MODEL?: string;
 
   // K2 spike (optional)
@@ -53,6 +57,10 @@ export interface Env {
 
   // Tuning
   FORK_TTL_HOURS?: string;
+  /** How many queued push events one consumer invocation routes at once (default 8). */
+  QUEUE_CONCURRENCY?: string;
+  /** How many forks a fan-out runs at once (default 64). */
+  FORK_CONCURRENCY?: string;
   TOKEN_TTL_SECONDS?: string;
   /** Canonical origin, e.g. https://forkyard.example.com — the OAuth issuer and MCP resource. */
   PUBLIC_ORIGIN?: string;

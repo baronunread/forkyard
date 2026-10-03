@@ -131,7 +131,7 @@ export interface DetectedOverlap {
 }
 
 /**
- * Pairwise overlap detection across agents on one task.
+ * Overlap detection across agents on one task.
  *
  * - `change`: two agents changed the same file, or one changed a file the
  *   other claimed. These are the conflicts that will bite at merge time.
@@ -140,47 +140,96 @@ export interface DetectedOverlap {
  *
  * Results are grouped per path, so three agents on the same file produce one
  * overlap with three agents.
+ *
+ * Built for swarms: instead of comparing every pair of agents (O(agents²) on
+ * every push), it indexes path → agents and pattern → agents, so the cost
+ * follows the number of distinct paths and patterns touched, not the number
+ * of agents. A thousand agents on one task recompute in milliseconds.
  */
 export function detectOverlaps(footprints: AgentFootprint[]): DetectedOverlap[] {
-  const byKey = new Map<string, DetectedOverlap>();
-  const add = (kind: "claim" | "change", path: string, a: string, b: string) => {
+  const byKey = new Map<string, { key: string; kind: "claim" | "change"; path: string; agents: Set<string> }>();
+  const add = (kind: "claim" | "change", path: string, agents: Iterable<string>) => {
     const key = `${kind}:${path}`;
-    const cur = byKey.get(key);
-    if (cur) {
-      if (!cur.agents.includes(a)) cur.agents.push(a);
-      if (!cur.agents.includes(b)) cur.agents.push(b);
-    } else {
-      byKey.set(key, { key, kind, path, agents: [a, b] });
-    }
+    let cur = byKey.get(key);
+    if (!cur) byKey.set(key, (cur = { key, kind, path, agents: new Set() }));
+    for (const a of agents) cur.agents.add(a);
   };
 
-  for (let i = 0; i < footprints.length; i++) {
-    for (let j = i + 1; j < footprints.length; j++) {
-      const A = footprints[i]!;
-      const B = footprints[j]!;
-      const changedB = new Set(B.changed);
-      for (const p of A.changed) if (changedB.has(p)) add("change", p, A.agentId, B.agentId);
-      for (const p of A.changed)
-        for (const c of B.claims) if (!changedB.has(p) && matchesGlob(p, c)) add("change", p, A.agentId, B.agentId);
-      for (const p of B.changed)
-        for (const c of A.claims)
-          if (!A.changed.includes(p) && matchesGlob(p, c)) add("change", p, A.agentId, B.agentId);
-      for (const ca of A.claims)
-        for (const cb of B.claims) if (patternsOverlap(ca, cb)) add("claim", shorter(ca, cb), A.agentId, B.agentId);
+  // path → agents that changed it; normalized pattern → agents that claimed it.
+  const changedBy = new Map<string, Set<string>>();
+  const claimedBy = new Map<string, Set<string>>();
+  for (const fp of footprints) {
+    for (const p of fp.changed) {
+      let s = changedBy.get(p);
+      if (!s) changedBy.set(p, (s = new Set()));
+      s.add(fp.agentId);
     }
+    for (const raw of fp.claims) {
+      const c = normalizePattern(raw);
+      if (!c) continue;
+      let s = claimedBy.get(c);
+      if (!s) claimedBy.set(c, (s = new Set()));
+      s.add(fp.agentId);
+    }
+  }
+
+  // change × change: the same file changed by two or more agents.
+  for (const [p, agents] of changedBy) if (agents.size >= 2) add("change", p, agents);
+
+  // change × claim: a changed file inside someone else's claim (who hasn't changed it).
+  const literalClaims = new Map<string, Set<string>>();
+  const globClaims: [string, Set<string>][] = [];
+  for (const [c, agents] of claimedBy) (isGlob(c) ? globClaims.push([c, agents]) : literalClaims.set(c, agents));
+  for (const [p, changers] of changedBy) {
+    const claimers = new Set<string>();
+    const lit = literalClaims.get(p);
+    if (lit) for (const a of lit) claimers.add(a);
+    for (const [c, agents] of globClaims) if (matchesGlob(p, c)) for (const a of agents) claimers.add(a);
+    const others = [...claimers].filter((a) => !changers.has(a));
+    if (others.length) add("change", p, [...changers, ...others]);
+  }
+
+  // claim × claim: intersecting patterns from different agents. Patterns are bucketed by
+  // their first literal segment so unrelated areas of the tree are never compared.
+  const buckets = new Map<string, string[]>();
+  const anywhere: string[] = [];
+  for (const c of claimedBy.keys()) {
+    const head = c.split("/")[0]!;
+    if (isGlob(head)) anywhere.push(c);
+    else {
+      let b = buckets.get(head);
+      if (!b) buckets.set(head, (b = []));
+      b.push(c);
+    }
+  }
+  const claimPair = (ca: string, cb: string) => {
+    const A = claimedBy.get(ca)!;
+    const B = claimedBy.get(cb)!;
+    if (ca === cb) {
+      if (A.size >= 2) add("claim", ca, A);
+      return;
+    }
+    // Needs two different agents across the pair.
+    if (A.size === 1 && B.size === 1 && [...A][0] === [...B][0]) return;
+    if (patternsOverlap(ca, cb)) add("claim", shorter(ca, cb), [...A, ...B]);
+  };
+  const groups = [...buckets.values()];
+  for (const g of groups) for (let i = 0; i < g.length; i++) for (let j = i; j < g.length; j++) claimPair(g[i]!, g[j]!);
+  for (let i = 0; i < anywhere.length; i++) {
+    for (let j = i; j < anywhere.length; j++) claimPair(anywhere[i]!, anywhere[j]!);
+    for (const g of groups) for (const c of g) claimPair(anywhere[i]!, c);
   }
 
   // A claim overlap whose area is already covered by a concrete change overlap is noise.
   const changes = [...byKey.values()].filter((o) => o.kind === "change");
   for (const o of [...byKey.values()]) {
     if (o.kind !== "claim") continue;
-    const covered = changes.some(
-      (c) => matchesGlob(c.path, o.path) && o.agents.every((a) => c.agents.includes(a)),
-    );
+    const covered = changes.some((c) => matchesGlob(c.path, o.path) && [...o.agents].every((a) => c.agents.has(a)));
     if (covered) byKey.delete(o.key);
   }
-  for (const o of byKey.values()) o.agents.sort();
-  return [...byKey.values()].sort((x, y) => x.key.localeCompare(y.key));
+  return [...byKey.values()]
+    .map((o) => ({ key: o.key, kind: o.kind, path: o.path, agents: [...o.agents].sort() }))
+    .sort((x, y) => x.key.localeCompare(y.key));
 }
 
 function shorter(a: string, b: string): string {
@@ -188,5 +237,6 @@ function shorter(a: string, b: string): string {
   const nb = normalizePattern(b);
   if (!isGlob(na)) return na;
   if (!isGlob(nb)) return nb;
-  return na.length <= nb.length ? na : nb;
+  // Deterministic regardless of argument order: shorter, then alphabetical.
+  return na.length !== nb.length ? (na.length < nb.length ? na : nb) : na < nb ? na : nb;
 }

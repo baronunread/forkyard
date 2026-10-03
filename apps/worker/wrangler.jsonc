@@ -43,8 +43,9 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Yard", "LocalArtifacts"] }],
   "queues": {
     "producers": [{ "binding": "ARTIFACT_EVENTS", "queue": "forkyard-artifact-events" }],
-    // Batch size 1: a push is delivered as soon as it arrives (live path latency).
-    "consumers": [{ "queue": "forkyard-artifact-events", "max_batch_size": 1, "max_retries": 5 }]
+    // Small batches, short wait: a lone push is delivered within the timeout, and a swarm's
+    // bursts arrive in batches the consumer routes concurrently.
+    "consumers": [{ "queue": "forkyard-artifact-events", "max_batch_size": 100, "max_batch_timeout": 1, "max_retries": 5 }]
   },
   "workflows": [{ "name": "forkyard-review", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" }],
   "triggers": { "crons": ["17 * * * *"] },
@@ -84,7 +85,7 @@
       },
       "queues": {
         "producers": [{ "binding": "ARTIFACT_EVENTS", "queue": "forkyard-artifact-events" }],
-        "consumers": [{ "queue": "forkyard-artifact-events", "max_batch_size": 1, "max_retries": 5 }]
+        "consumers": [{ "queue": "forkyard-artifact-events", "max_batch_size": 100, "max_batch_timeout": 1, "max_retries": 5, "max_concurrency": 250 }]
       },
       "workflows": [{ "name": "forkyard-review", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" }],
       "triggers": { "crons": ["17 * * * *"] }

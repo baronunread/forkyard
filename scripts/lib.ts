@@ -110,26 +110,53 @@ export function log(who: string, msg: string): void {
   console.log(`${t} ${who.padEnd(6)} ${msg}`);
 }
 
-/** Watch a yard's WebSocket; resolves `waitFor` promises on matching events. */
+/**
+ * Watch a yard's WebSocket; resolves `waitFor` promises on matching events.
+ * Reconnects with `?since=<last seq>` if the socket drops, so a dev-server
+ * restart doesn't lose events (they arrive late, and are timed when they arrive).
+ */
 export async function watchYard(yardId: string, key = ADMIN_KEY) {
-  const url = `${BASE.replace(/^http/, "ws")}/api/yards/${yardId}/ws${key ? `?key=${encodeURIComponent(key)}` : ""}`;
-  const ws = new WebSocket(url);
   type Ev = { seq: number; type: string; agentId: string | null; taskId: string | null; data: Record<string, unknown> };
   const waiters: { pred: (e: Ev) => boolean; resolve: (e: Ev & { at: number }) => void }[] = [];
   const seen: (Ev & { at: number })[] = [];
-  ws.addEventListener("message", (m) => {
-    const msg = JSON.parse(String(m.data)) as { kind: string; event?: Ev };
-    if (msg.kind !== "event" || !msg.event) return;
-    const e = { ...msg.event, at: performance.now() };
-    seen.push(e);
-    for (const w of [...waiters]) if (w.pred(e)) (waiters.splice(waiters.indexOf(w), 1), w.resolve(e));
-  });
-  await new Promise<void>((resolve, reject) => {
-    ws.addEventListener("open", () => resolve());
-    ws.addEventListener("error", () => reject(new Error(`websocket failed: ${url}`)));
-  });
+  let last = 0;
+  let closed = false;
+  let reconnects = 0;
+  let current: WebSocket | null = null;
+  const connect = () =>
+    new Promise<WebSocket>((resolve, reject) => {
+      const q = new URLSearchParams();
+      if (key) q.set("key", key);
+      if (last) q.set("since", String(last));
+      const url = `${BASE.replace(/^http/, "ws")}/api/yards/${yardId}/ws?${q}`;
+      const ws = new WebSocket(url);
+      ws.addEventListener("message", (m) => {
+        const msg = JSON.parse(String(m.data)) as { kind: string; event?: Ev };
+        if (msg.kind !== "event" || !msg.event || msg.event.seq <= last) return;
+        last = msg.event.seq;
+        const e = { ...msg.event, at: performance.now() };
+        seen.push(e);
+        for (const w of [...waiters]) if (w.pred(e)) (waiters.splice(waiters.indexOf(w), 1), w.resolve(e));
+      });
+      ws.addEventListener("open", () => resolve((current = ws)));
+      ws.addEventListener("error", () => reject(new Error(`websocket failed: ${url}`)));
+      ws.addEventListener("close", () => {
+        if (closed) return;
+        reconnects++;
+        const retry = () => connect().catch(() => setTimeout(retry, 1000));
+        setTimeout(retry, 500);
+      });
+    });
+  await connect();
   return {
     seen,
+    get reconnects() {
+      return reconnects;
+    },
+    close() {
+      closed = true;
+      current?.close();
+    },
     waitFor(pred: (e: Ev) => boolean, timeoutMs = 30_000): Promise<Ev & { at: number }> {
       const hit = seen.find(pred);
       if (hit) return Promise.resolve(hit);
@@ -142,6 +169,5 @@ export async function watchYard(yardId: string, key = ADMIN_KEY) {
         }, timeoutMs);
       });
     },
-    close: () => ws.close(),
   };
 }

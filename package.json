@@ -20,7 +20,8 @@
     "bench:events": "tsx scripts/bench-events.ts",
     "e2e": "tsx scripts/e2e.ts",
     "cleanup": "tsx scripts/cleanup.ts",
-    "emulate": "emulate start --service github,google --port 4001 --seed emulate.config.yaml"
+    "emulate": "emulate start --service github,google --port 4001 --seed emulate.config.yaml",
+    "swarm": "tsx scripts/swarm.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

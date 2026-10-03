@@ -28,6 +28,7 @@ import {
 } from "@forkyard/shared";
 import { disposeRepo, errorCode, getArtifacts, type Repo } from "./artifacts";
 import { agentFromRow, getYard, latestIntents, listAgents, newId, now, sha256Hex } from "./db";
+import { mapLimit } from "./diff";
 import { num, type Env } from "./env";
 
 /**
@@ -49,6 +50,12 @@ interface SocketInfo {
   taskId: string | null;
 }
 
+/** Overlap sizes worth a new entry in the shared log (it always starts at 2). */
+const OVERLAP_MILESTONES = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
+
+/** How often the alarm re-checks the review queue while reviews are waiting. */
+const REVIEW_TICK_MS = 500;
+
 export interface YardStatus {
   yard: YardRecord;
   head: number;
@@ -58,6 +65,8 @@ export interface YardStatus {
   overlaps: Overlap[];
   recent: YardEvent[];
   connected: { ui: number; agents: number };
+  /** The review scheduler: reviews in flight and agents waiting for one. */
+  reviews: { running: number; queued: number };
 }
 
 export interface PushInput {
@@ -76,6 +85,7 @@ export class Yard extends DurableObject<Env> {
   private sql: SqlStorage;
   private yardCache: YardRecord | null = null;
   private forks = new Map<string, Promise<Agent>>();
+  private reservedTaskIds = new Set<string>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -90,6 +100,14 @@ export class Yard extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS claims (
         task_id TEXT NOT NULL, agent_id TEXT NOT NULL, pattern TEXT NOT NULL, created_at TEXT NOT NULL,
         PRIMARY KEY (task_id, agent_id, pattern)
+      );
+      CREATE TABLE IF NOT EXISTS reviews_pending (
+        task_id TEXT NOT NULL, agent_id TEXT NOT NULL, queued_at INTEGER NOT NULL,
+        PRIMARY KEY (task_id, agent_id)
+      );
+      CREATE TABLE IF NOT EXISTS reviews_inflight (
+        task_id TEXT NOT NULL, agent_id TEXT NOT NULL, commit_hash TEXT NOT NULL, started_at INTEGER NOT NULL,
+        PRIMARY KEY (task_id, agent_id)
       );
       CREATE TABLE IF NOT EXISTS footprints (
         task_id TEXT NOT NULL, agent_id TEXT NOT NULL, head TEXT NOT NULL, changed TEXT NOT NULL,
@@ -289,7 +307,8 @@ export class Yard extends DurableObject<Env> {
           .bind(await sha256Hex(apiKey), yard.id, taskId, a.id, a.role, createdAt),
       );
     }
-    await db.batch(stmts);
+    // D1 batches are transactions; keep each one small so a thousand-agent fan-out doesn't hit limits.
+    for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
 
     await this.append({ type: "task.created", taskId, agentId: null, data: { task, agentIds: agents.map((a) => a.id) } });
     for (const a of agents) await this.append({ type: "agent.forking", taskId, agentId: a.id, data: { agent: a } });
@@ -301,25 +320,44 @@ export class Yard extends DurableObject<Env> {
     return { task, agents, credentials };
   }
 
+  /**
+   * A free task id. Concurrent task_create calls interleave at the D1 await, so an id is
+   * reserved in memory the moment it's picked (this object is the only writer for its yard).
+   */
   private async uniqueTaskId(base: string): Promise<string> {
     const yard = await this.yard();
     for (let i = 1; ; i++) {
       const id = i === 1 ? base : `${base.slice(0, 21)}-${i}`;
+      if (this.reservedTaskIds.has(id)) continue;
+      this.reservedTaskIds.add(id);
       const r = await this.env.DB.prepare("SELECT 1 FROM tasks WHERE yard_id = ? AND id = ?").bind(yard.id, id).first();
       if (!r) return id;
     }
   }
 
+  /**
+   * Every fork starts as soon as a slot is free (FORK_CONCURRENCY at a time, so a
+   * thousand-agent task doesn't open a thousand fork calls at once). Each agent's
+   * promise exists from the start, so workspace_get can wait on its own fork.
+   */
   private async fanOut(yard: YardRecord, task: Task, agents: Agent[]): Promise<void> {
     const base = await this.artifacts().get(yard.baseRepo);
+    const limit = Math.max(1, num(this.env.FORK_CONCURRENCY, 64));
+    const starts = agents.map(() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => (resolve = r));
+      return { promise, resolve };
+    });
+    const done = agents.map((a, i) => {
+      const p = starts[i]!.promise.then(() => this.forkOne(base, task, a));
+      this.forks.set(`${task.id}/${a.id}`, p);
+      return p.finally(() => this.forks.delete(`${task.id}/${a.id}`));
+    });
     try {
-      await Promise.allSettled(
-        agents.map((a) => {
-          const p = this.forkOne(base, task, a);
-          this.forks.set(`${task.id}/${a.id}`, p);
-          return p.finally(() => this.forks.delete(`${task.id}/${a.id}`));
-        }),
-      );
+      await mapLimit(agents, limit, async (_a, i) => {
+        starts[i]!.resolve();
+        await done[i]!.catch(() => undefined);
+      });
     } finally {
       disposeRepo(base);
     }
@@ -574,7 +612,16 @@ export class Yard extends DurableObject<Env> {
       const prev = current.get(d.key);
       const sameAgents = prev && prev.agents.join(",") === d.agents.join(",");
       if (prev?.active && sameAgents) continue;
-      const overlap: Overlap = { key: d.key, taskId, kind: d.kind, path: d.path, agents: d.agents, active: true, detectedAt: now() };
+      const overlap: Overlap = {
+        key: d.key,
+        taskId,
+        kind: d.kind,
+        path: d.path,
+        agents: d.agents,
+        active: true,
+        // An overlap that grows keeps the time it was first seen.
+        detectedAt: prev?.active ? prev.detectedAt : now(),
+      };
       this.sql.exec(
         "INSERT OR REPLACE INTO overlaps (task_id, key, kind, path, agents, active, detected_at) VALUES (?, ?, ?, ?, ?, 1, ?)",
         taskId,
@@ -584,8 +631,14 @@ export class Yard extends DurableObject<Env> {
         JSON.stringify(d.agents),
         overlap.detectedAt,
       );
-      await this.append({ type: "overlap.detected", taskId, agentId: null, data: { overlap } });
-      for (const a of d.agents) this.sendToAgent(taskId, a, { kind: "overlap", overlap, you: a });
+      // Every agent newly in the overlap is told directly. The shared log only records it when
+      // it starts and when it crosses a size milestone, so a hot file in a thousand-agent swarm
+      // is a handful of events, not one per agent that touches it.
+      const before = prev?.active ? new Set(prev.agents) : new Set<string>();
+      const joined = d.agents.filter((a) => !before.has(a));
+      const crossed = OVERLAP_MILESTONES.some((m) => before.size < m && d.agents.length >= m);
+      if (!prev?.active || crossed) await this.append({ type: "overlap.detected", taskId, agentId: null, data: { overlap } });
+      for (const a of joined) this.sendToAgent(taskId, a, { kind: "overlap", overlap, you: a });
     }
     for (const [key, prev] of current) {
       if (!prev.active || seen.has(key)) continue;
@@ -687,32 +740,69 @@ export class Yard extends DurableObject<Env> {
       const lat = received - Date.parse(input.emittedAt);
       if (Number.isFinite(lat)) this.sql.exec("INSERT INTO live_samples (seq, latency_ms, observed_at) VALUES (?, ?, ?)", ev.seq, lat, now());
     }
-    if (!input.startReview || !onDefault) return { workflowId: null };
-    const task = await this.env.DB.prepare("SELECT base_commit FROM tasks WHERE yard_id = ? AND id = ?")
-      .bind(yard.id, agent.taskId)
-      .first<{ base_commit: string }>();
-    // Review the branch head (identical ids dedupe repeated deliveries).
-    const workflowId = `${agent.forkName}-${head.slice(0, 12)}`.slice(0, 100);
-    try {
-      await this.env.REVIEW_WORKFLOW.create({
-        id: workflowId,
-        params: {
-          kind: "forkyard",
-          yardId: yard.id,
-          taskId: agent.taskId,
-          agentId: agent.id,
-          forkName: agent.forkName,
-          commit: head,
-          baseCommit: task?.base_commit ?? "",
-          jurisdiction: yard.jurisdiction,
-        },
-      });
-      await this.append({ type: "review.started", taskId: agent.taskId, agentId: agent.id, data: { commit: head, workflowId } });
-    } catch (err) {
-      // Duplicate delivery of the same push: the review already exists.
-      if (!String(err).toLowerCase().includes("already")) throw err;
+    if (!input.startReview || !onDefault || this.env.REVIEWS === "off") return { workflowId: null };
+    // Queue the review and return: the push is already visible, and starting a Workflow must
+    // not hold up the next event in the queue. The alarm starts it within a tick.
+    this.sql.exec("INSERT OR IGNORE INTO reviews_pending (task_id, agent_id, queued_at) VALUES (?, ?, ?)", agent.taskId, agent.id, Date.now());
+    await this.scheduleReviewTick();
+    return { workflowId: this.reviewId(agent.forkName, head) };
+  }
+
+  private reviewId(forkName: string, head: string): string {
+    return `${forkName}-${head.slice(0, 12)}`.slice(0, 100);
+  }
+
+  /**
+   * Reviews are scheduled, not fired per push:
+   *  - one review per agent at a time; a push during a review is covered by the next one,
+   *    which reviews whatever the agent's head is by then;
+   *  - at most REVIEW_CONCURRENCY reviews in flight per yard; the rest queue and start as
+   *    slots free (onReview). A swarm of a thousand agents pushing at once is a queue of
+   *    reviews, not a thousand simultaneous Workflow instances.
+   * A review that never reports back is considered lost after REVIEW_STALE_MS.
+   */
+  private async drainReviews(): Promise<void> {
+    // Whatever happens below, the alarm comes back while anything is still queued.
+    if (Number(this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM reviews_pending").one().n) > 0) await this.scheduleReviewTick();
+    const REVIEW_STALE_MS = 5 * 60_000;
+    const cap = Math.max(1, num(this.env.REVIEW_CONCURRENCY, 16));
+    this.sql.exec("DELETE FROM reviews_inflight WHERE started_at < ?", Date.now() - REVIEW_STALE_MS);
+    const busy = Number(this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM reviews_inflight").one().n);
+    if (busy >= cap) return;
+    const next = this.sql
+      .exec<{ task_id: string; agent_id: string }>(
+        `SELECT p.task_id, p.agent_id FROM reviews_pending p
+         WHERE NOT EXISTS (SELECT 1 FROM reviews_inflight i WHERE i.task_id = p.task_id AND i.agent_id = p.agent_id)
+         ORDER BY p.queued_at LIMIT ?`,
+        cap - busy,
+      )
+      .toArray();
+    if (!next.length) return;
+    const yard = await this.yard();
+    for (const { task_id: taskId, agent_id: agentId } of next) {
+      this.sql.exec("DELETE FROM reviews_pending WHERE task_id = ? AND agent_id = ?", taskId, agentId);
+      const row = await this.env.DB.prepare(
+        `SELECT a.head_commit, a.fork_name, a.status, t.base_commit, t.status AS task_status FROM agents a
+         JOIN tasks t ON t.yard_id = a.yard_id AND t.id = a.task_id WHERE a.yard_id = ? AND a.task_id = ? AND a.id = ?`,
+      )
+        .bind(yard.id, taskId, agentId)
+        .first<{ head_commit: string | null; fork_name: string; status: string; base_commit: string; task_status: string }>();
+      if (!row?.head_commit || row.task_status !== "open" || row.status === "retired") continue;
+      const head = row.head_commit;
+      const workflowId = this.reviewId(row.fork_name, head);
+      this.sql.exec("INSERT OR REPLACE INTO reviews_inflight (task_id, agent_id, commit_hash, started_at) VALUES (?, ?, ?, ?)", taskId, agentId, head, Date.now());
+      try {
+        await this.env.REVIEW_WORKFLOW.create({
+          id: workflowId,
+          params: { kind: "forkyard", yardId: yard.id, taskId, agentId, forkName: row.fork_name, commit: head, baseCommit: row.base_commit, jurisdiction: yard.jurisdiction },
+        });
+        await this.append({ type: "review.started", taskId, agentId, data: { commit: head, workflowId } });
+      } catch (err) {
+        // The same head was already reviewed (an older instance): nothing new to do.
+        this.sql.exec("DELETE FROM reviews_inflight WHERE task_id = ? AND agent_id = ?", taskId, agentId);
+        if (!String(err).toLowerCase().includes("already")) console.error("review start failed", err);
+      }
     }
-    return { workflowId };
   }
 
   async onDiff(taskId: string, agentId: string, commit: string, files: ChangedFile[]): Promise<void> {
@@ -738,6 +828,20 @@ export class Yard extends DurableObject<Env> {
       .bind(yard.id, review.taskId, review.agentId, review.commit)
       .run();
     await this.append({ type: "review.completed", taskId: review.taskId, agentId: review.agentId, data: { review } });
+    // Free the slot. If the agent pushed while this review ran, review its newest head next.
+    this.sql.exec("DELETE FROM reviews_inflight WHERE task_id = ? AND agent_id = ?", review.taskId, review.agentId);
+    const row = await this.env.DB.prepare("SELECT head_commit FROM agents WHERE yard_id = ? AND task_id = ? AND id = ?")
+      .bind(yard.id, review.taskId, review.agentId)
+      .first<{ head_commit: string | null }>();
+    if (row?.head_commit && row.head_commit !== review.commit)
+      this.sql.exec("INSERT OR IGNORE INTO reviews_pending (task_id, agent_id, queued_at) VALUES (?, ?, ?)", review.taskId, review.agentId, Date.now());
+    await this.drainReviews();
+  }
+
+  /** A review gave up (its Workflow failed): free the slot and let the queue move. */
+  async reviewFailed(taskId: string, agentId: string, commit: string): Promise<void> {
+    this.sql.exec("DELETE FROM reviews_inflight WHERE task_id = ? AND agent_id = ? AND commit_hash = ?", taskId, agentId, commit);
+    await this.drainReviews();
   }
 
   async onDecision(decision: Decision): Promise<void> {
@@ -817,6 +921,10 @@ export class Yard extends DurableObject<Env> {
       overlaps,
       recent: rows.map((r) => this.rowToEvent(r, yard.id)),
       connected: { ui: infos.filter((i) => i?.role === "ui").length, agents: infos.filter((i) => i?.role === "agent").length },
+      reviews: {
+        running: Number(this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM reviews_inflight").one().n),
+        queued: Number(this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM reviews_pending").one().n),
+      },
     };
   }
 
@@ -905,15 +1013,27 @@ export class Yard extends DurableObject<Env> {
     return !!(this.env.EVENTS_K2 && this.env.K2_STREAM_ID && this.env.K2_SUBSCRIPTION_ID && this.env.K2_API_TOKEN);
   }
 
+  /** One alarm, two jobs: keep the review queue moving, and poll K2 while a spike window is open. */
   override async alarm(): Promise<void> {
+    await this.drainReviews().catch((err) => console.error("review drain failed", err));
     const until = Number(this.sql.exec<{ v: string }>("SELECT v FROM meta WHERE k = 'k2_until'").toArray()[0]?.v ?? 0);
-    if (!this.k2Configured() || Date.now() > until) return;
-    try {
-      await this.consumeK2Once();
-    } catch (err) {
-      console.warn("k2 consume failed", err);
+    const k2 = this.k2Configured() && Date.now() <= until;
+    if (k2) {
+      try {
+        await this.consumeK2Once();
+      } catch (err) {
+        console.warn("k2 consume failed", err);
+      }
     }
-    await this.ctx.storage.setAlarm(Date.now() + 250);
+    const reviewsWaiting = Number(this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM reviews_pending").one().n) > 0;
+    if (k2) await this.ctx.storage.setAlarm(Date.now() + 250);
+    else if (reviewsWaiting) await this.ctx.storage.setAlarm(Date.now() + REVIEW_TICK_MS);
+  }
+
+  /** Make sure the alarm will look at the review queue soon. */
+  private async scheduleReviewTick(): Promise<void> {
+    const at = await this.ctx.storage.getAlarm();
+    if (at === null || at > Date.now() + REVIEW_TICK_MS) await this.ctx.storage.setAlarm(Date.now() + REVIEW_TICK_MS);
   }
 
   private async consumeK2Once(): Promise<void> {

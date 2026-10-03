@@ -71,7 +71,18 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewParams | Artif
       if (!params) return { skipped: "not a Forkyard fork" };
     }
     const p = params;
+    try {
+      return await this.review(p, step);
+    } catch (err) {
+      // Give the yard its review slot back so queued reviews keep moving.
+      await step.do("release review slot", async () => {
+        await yardStub(this.env, { id: p.yardId, jurisdiction: p.jurisdiction }).reviewFailed(p.taskId, p.agentId, p.commit);
+      });
+      throw err;
+    }
+  }
 
+  private async review(p: ReviewParams, step: WorkflowStep) {
     const files = await step.do("diff fork vs base", { retries: { limit: 3, delay: "2 seconds", backoff: "exponential" } }, async () => {
       const repo = await getArtifacts(this.env, p.jurisdiction).get(p.forkName);
       try {

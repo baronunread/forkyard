@@ -102,7 +102,7 @@ export async function readPathAt(repo: Repo, commit: string, path: string): Prom
   return { text: r.text, binary: r.binary, exists: true };
 }
 
-export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
+export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {

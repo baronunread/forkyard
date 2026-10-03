@@ -16,8 +16,9 @@ export const Jurisdiction = z.enum(["default", "eu"]);
 export type Jurisdiction = z.infer<typeof Jurisdiction>;
 
 export const Budgets = z.object({
-  maxAgentsPerTask: z.number().int().min(1).max(50).default(8),
-  maxActiveForks: z.number().int().min(1).max(500).default(40),
+  // Swarm scale: a task can fan out to thousands of agents, each in its own fork.
+  maxAgentsPerTask: z.number().int().min(1).max(10_000).default(1_000),
+  maxActiveForks: z.number().int().min(1).max(100_000).default(10_000),
 });
 export type Budgets = z.infer<typeof Budgets>;
 
@@ -282,7 +283,7 @@ export const CreateTaskInput = z.object({
   id: Slug.optional(),
   title: z.string().min(1).max(120),
   brief: z.string().max(8000).default(""),
-  agents: z.array(AgentSpec).min(1).max(50),
+  agents: z.array(AgentSpec).min(1).max(10_000),
 });
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 

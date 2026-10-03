@@ -4,6 +4,7 @@ import { api, type HonoEnv } from "./api";
 import { assertYard, authenticate, bearer, principalForToken } from "./auth";
 import { AUTH_BASE_PATH, handleAuth, origin, socialProviders } from "./better-auth";
 import { getYard } from "./db";
+import { mapLimit } from "./diff";
 import { num, type Env } from "./env";
 import { handleMcp } from "./mcp";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
@@ -133,9 +134,14 @@ function routeTable(origin: string) {
 export default {
   fetch: app.fetch,
 
-  /** Artifacts event subscription → Queue → here → Yard DO (live) + review Workflow. */
+  /**
+   * Artifacts event subscription → Queue → here → Yard DO (live) + review Workflow.
+   * Messages in a batch are routed concurrently (each acked or retried on its own):
+   * a swarm pushes hundreds of times a second, and one-at-a-time delivery is a queue
+   * behind a queue. Order doesn't matter — onPush reads the fork's real head.
+   */
   async queue(batch: MessageBatch<ArtifactsPushEvent>, env: Env): Promise<void> {
-    for (const msg of batch.messages) {
+    await mapLimit(batch.messages, num(env.QUEUE_CONCURRENCY, 8), async (msg) => {
       try {
         await routeArtifactsEvent(env, msg.body, msg.body.metadata && "emulator" in msg.body.metadata ? "local" : "queue", true);
         msg.ack();
@@ -143,7 +149,7 @@ export default {
         console.error("failed to route artifacts event", err);
         msg.retry({ delaySeconds: Math.min(60, 2 ** msg.attempts) });
       }
-    }
+    });
   },
 
   /** Delete forks of decided/abandoned tasks after the TTL so nothing lingers into billing. */
