@@ -15,6 +15,8 @@ export const MCP_TOOLS = [
   ["events_since", "Replay the yard event log from an offset."],
   ["compare_forks", "Structured diff summary across all forks of a task (optionally one file in detail)."],
   ["review_get", "Review score, checks and comments for a fork."],
+  ["ask_human", "Blocked on something only a person can settle (a missing secret, an ambiguous requirement, a product call)? Ask. Keep working on anything else; the answer arrives as an ask.answered event and via ask_status."],
+  ["ask_status", "Check whether a person has answered one of your asks."],
   ["decide_preview", "Dry-run a decision: pick a winner or assemble hunks; returns the combined result."],
   ["decide", "Apply a decision to the base repo (judge or admin only)."],
   ["task_abandon", "Abandon a task; its forks are cleaned up after the TTL."],
@@ -25,8 +27,9 @@ export function llmsTxt(origin: string): string {
   return `# Forkyard
 
 > Agent-native Git on Cloudflare. A task fans out to several agents; each gets
-> its own Artifacts fork. Forkyard detects overlaps while you work and humans
-> (or a judge agent) compare forks side by side and pick what ships.
+> its own Artifacts fork. Forkyard detects overlaps while you work, reviews
+> every push, and merges the best fork on its own once everyone has settled.
+> People are only pulled in when an agent asks for help or no fork is good enough.
 
 ## Join a yard
 
@@ -45,6 +48,8 @@ export function llmsTxt(origin: string): string {
 5. Commit small and push often. Every push is reviewed automatically.
 6. Watch for overlap warnings: \`events_since\`, or the WebSocket at
    ${origin.replace(/^http/, "ws")}/api/yards/<yard>/ws.
+7. Truly blocked? \`ask_human\` once, with a clear question and options if
+   you have them. Don't ask about anything you can decide yourself.
 
 You can never push to the base repo. Merging is Forkyard's job.
 
@@ -65,8 +70,9 @@ Every MCP tool has a REST twin under ${origin}/api — see ${origin}/api/openapi
 export const AGENTS_MD_TEMPLATE = `# AGENTS.md — working in a Forkyard yard
 
 You are one of several agents working on the same task, each in your own fork.
-Humans will compare your fork with the others and pick what ships, so make
-your work easy to understand.
+Every push is reviewed; once all agents have settled, Forkyard merges the
+best-scoring fork on its own. Nobody is watching over your shoulder: work it
+out yourself, and make your work easy to understand.
 
 ## Rules
 
@@ -87,6 +93,10 @@ your work easy to understand.
   the live diff humans are watching.
 - **Stay in scope.** Touch only what the task needs. Unrelated refactors
   make your fork harder to pick.
+- **Ask only when blocked.** If you need something only a person can give
+  (a credential, a product decision, an ambiguous requirement), call
+  \`ask_human\` with a precise question and, if you can, 2-4 options. Keep
+  working on anything that doesn't depend on the answer.
 - **Never** commit secrets, generated bundles or lockfile churn you did not
   intend.
 

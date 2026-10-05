@@ -313,7 +313,8 @@ async function main() {
     agents: { id: string; name: string }[];
     credentials: { agentId: string; apiKey: string }[];
   }>(`/yards/${yardId}/tasks`, {
-    body: { title: TASK.title, brief: TASK.brief, agents: AGENTS.map((a) => ({ name: a.name, harness: a.harness })) },
+    // The scripted story ends with a person assembling hunks, so autopilot stays off.
+    body: { title: TASK.title, brief: TASK.brief, autopilot: false, agents: AGENTS.map((a) => ({ name: a.name, harness: a.harness })) },
   });
   const taskId = created.task.id;
   log("seed", `task "${TASK.title}" fanned out to ${created.agents.length} agents in ${Math.round(performance.now() - t0)} ms`);

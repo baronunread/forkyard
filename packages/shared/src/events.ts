@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Agent, Claim, Decision, Intent, Overlap, Review, Task } from "./schemas";
+import { Agent, Ask, Claim, Decision, Intent, Overlap, Review, Task } from "./schemas";
 
 /**
  * Yard event log. The envelope is transport-independent: the same object is
@@ -59,6 +59,8 @@ export const YardEvent = z.discriminatedUnion("type", [
   ev("decision.made", z.object({ decision: Decision })),
   ev("task.abandoned", z.object({ reason: z.string() })),
   ev("fork.deleted", z.object({ forkName: z.string() })),
+  ev("ask.opened", z.object({ ask: Ask })),
+  ev("ask.answered", z.object({ ask: Ask })),
 ]);
 export type YardEvent = z.infer<typeof YardEvent>;
 export type YardEventType = YardEvent["type"];
@@ -123,5 +125,9 @@ export function describeEvent(e: YardEvent, agentName: (id: string | null) => st
       return `task abandoned: ${e.data.reason}`;
     case "fork.deleted":
       return `fork ${e.data.forkName} deleted`;
+    case "ask.opened":
+      return e.agentId ? `${who} asked for help: ${e.data.ask.question}` : `needs a decision: ${e.data.ask.question}`;
+    case "ask.answered":
+      return `${e.data.ask.answeredBy ?? "someone"} answered: ${e.data.ask.answer ?? ""}`;
   }
 }

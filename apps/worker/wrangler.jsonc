@@ -20,6 +20,8 @@
     "LOCAL_GIT_ORIGIN": "http://localhost:8787",
     "FORK_TTL_HOURS": "24",
     "TOKEN_TTL_SECONDS": "14400",
+    // Short settle time so the autopilot is visible in a local demo (default 15 s).
+    "AUTOPILOT_QUIET_MS": "4000",
     // Local dev only. Sign-in runs against emulate.dev (`pnpm dev` starts it with
     // emulate.config.yaml), so these are emulator credentials, not real ones.
     "FORKYARD_DEV": "true",

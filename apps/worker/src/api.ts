@@ -1,5 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import {
+  AnswerInput,
+  AskInput,
   ClaimInput,
   CreateTaskInput,
   CreateYardInput,
@@ -53,6 +55,7 @@ export const api = new Hono<HonoEnv>()
   })
 
   // ── yards ──
+  .get("/inbox", async (c) => c.json(await svc.inbox(c.env, c.get("principal"))))
   .get("/yards", async (c) => c.json(await svc.yardsList(c.env, c.get("principal"))))
   .post("/yards", zValidator("json", CreateYardInput), async (c) => c.json(await svc.yardCreate(c.env, c.get("principal"), c.req.valid("json")), 201))
   .get("/yards/:yard", zValidator("param", yardParam), async (c) => c.json(await svc.yardStatus(c.env, c.get("principal"), c.req.valid("param").yard)))
@@ -128,6 +131,14 @@ export const api = new Hono<HonoEnv>()
     const { yard, task } = c.req.valid("param");
     return c.json(await svc.taskGet(c.env, c.get("principal"), yard, task));
   })
+  .post("/yards/:yard/asks/:ask/answer", zValidator("param", z.object({ yard: z.string(), ask: z.string() })), zValidator("json", AnswerInput), async (c) => {
+    const { yard, ask } = c.req.valid("param");
+    return c.json(await svc.askAnswer(c.env, c.get("principal"), yard, ask, c.req.valid("json")));
+  })
+  .post("/yards/:yard/tasks/:task/autopilot", zValidator("param", taskParam), zValidator("json", z.object({ on: z.boolean() })), async (c) => {
+    const { yard, task } = c.req.valid("param");
+    return c.json(await svc.setAutopilot(c.env, c.get("principal"), yard, task, c.req.valid("json").on));
+  })
   .post("/yards/:yard/tasks/:task/abandon", zValidator("param", taskParam), zValidator("json", z.object({ reason: z.string().default("abandoned") })), async (c) => {
     const { yard, task } = c.req.valid("param");
     return c.json(await svc.taskAbandon(c.env, c.get("principal"), yard, task, c.req.valid("json").reason));
@@ -180,6 +191,14 @@ export const api = new Hono<HonoEnv>()
   .post("/yards/:yard/tasks/:task/agents/:agent/intents", zValidator("param", agentParam), zValidator("json", IntentInput), async (c) => {
     const { yard, task, agent } = c.req.valid("param");
     return c.json(await svc.intentRecord(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }), 201);
+  })
+  .post("/yards/:yard/tasks/:task/agents/:agent/asks", zValidator("param", agentParam), zValidator("json", AskInput), async (c) => {
+    const { yard, task, agent } = c.req.valid("param");
+    return c.json(await svc.askCreate(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }), 201);
+  })
+  .get("/yards/:yard/asks/:ask", zValidator("param", z.object({ yard: z.string(), ask: z.string() })), async (c) => {
+    const { yard, ask } = c.req.valid("param");
+    return c.json(await svc.askGet(c.env, c.get("principal"), yard, ask));
   })
   .get("/yards/:yard/tasks/:task/agents/:agent/diff", zValidator("param", agentParam), async (c) => {
     const { yard, task, agent } = c.req.valid("param");

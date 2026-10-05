@@ -1,6 +1,9 @@
 import {
   Budgets,
   baseRepoName,
+  type AnswerInput,
+  type Ask,
+  type AskInput,
   matchesGlob,
   summarize,
   type Agent,
@@ -22,6 +25,7 @@ import { disposeRepo, errorCode, getArtifacts } from "./artifacts";
 import { actingAgent, assertAdmin, assertCanDecide, assertMemberOrAdmin, assertPerson, assertTask, assertYard, AuthError, isMember, type Principal } from "./auth";
 import {
   getAgent,
+  getAsk,
   getDecision,
   getTask,
   getYard,
@@ -34,6 +38,7 @@ import {
   listYards,
   newId,
   now,
+  openAsks,
 } from "./db";
 import { applyDecision, DecideError, previewDecision } from "./decide";
 import { computeHunks, forkDiff, mapLimit, readPathAt } from "./diff";
@@ -97,6 +102,8 @@ export interface YardSummary {
   activeAgents: number;
   /** Latest task created or decided. */
   lastActivityAt: string | null;
+  /** Open asks: what is waiting on a person. */
+  needsYou: number;
 }
 
 /** Yards the caller can see, each with a summary for the overview list. */
@@ -108,7 +115,7 @@ export async function yardsList(env: Env, p: Principal): Promise<(Yard & { summa
     const visible = await Promise.all(all.map((y) => isMember(env, p.userId, y.id)));
     yards = all.filter((_, i) => visible[i]);
   }
-  const [tasks, agents] = await env.DB.batch<Record<string, string | number | null>>([
+  const [tasks, agents, open] = await env.DB.batch<Record<string, string | number | null>>([
     env.DB.prepare(
       `SELECT yard_id, SUM(status = 'open') AS open, SUM(status = 'decided') AS decided,
               MAX(COALESCE(decided_at, created_at)) AS last FROM tasks GROUP BY yard_id`,
@@ -117,7 +124,9 @@ export async function yardsList(env: Env, p: Principal): Promise<(Yard & { summa
       `SELECT a.yard_id, COUNT(*) AS n FROM agents a JOIN tasks t ON t.yard_id = a.yard_id AND t.id = a.task_id
        WHERE t.status = 'open' AND a.status IN ('forking', 'ready', 'working', 'pushed', 'reviewed') GROUP BY a.yard_id`,
     ),
+    env.DB.prepare("SELECT yard_id, COUNT(*) AS n FROM asks WHERE status = 'open' GROUP BY yard_id"),
   ]);
+  const needs = new Map(open!.results.map((r) => [String(r.yard_id), Number(r.n)]));
   const byYard = new Map(tasks!.results.map((r) => [String(r.yard_id), r]));
   const active = new Map(agents!.results.map((r) => [String(r.yard_id), Number(r.n)]));
   return yards.map((y) => {
@@ -129,6 +138,7 @@ export async function yardsList(env: Env, p: Principal): Promise<(Yard & { summa
         decidedTasks: Number(t?.decided ?? 0),
         activeAgents: active.get(y.id) ?? 0,
         lastActivityAt: t?.last ? String(t.last) : null,
+        needsYou: needs.get(y.id) ?? 0,
       },
     };
   });
@@ -239,12 +249,14 @@ export async function taskGet(env: Env, p: Principal, yardId: string, taskId: st
   await assertTask(env, p, yardId, taskId);
   const yard = await mustYard(env, yardId);
   const task = await mustTask(env, yardId, taskId);
-  const [agents, intents, reviews, decision, status] = await Promise.all([
+  const stub = yardStub(env, yard);
+  const [agents, intents, reviews, decision, status, autopilot] = await Promise.all([
     listAgents(env.DB, yardId, taskId),
     latestIntents(env.DB, yardId, taskId),
     latestReviews(env.DB, yardId, taskId),
     getDecision(env.DB, yardId, taskId),
-    yardStub(env, yard).status(0),
+    stub.status(0),
+    stub.autopilotOf(taskId),
   ]);
   return {
     yard,
@@ -258,6 +270,8 @@ export async function taskGet(env: Env, p: Principal, yardId: string, taskId: st
     claims: status.claims.filter((c) => c.taskId === taskId),
     overlaps: status.overlaps.filter((o) => o.taskId === taskId),
     decision,
+    autopilot,
+    asks: status.asks.filter((a) => a.taskId === taskId),
   };
 }
 
@@ -433,6 +447,85 @@ export async function compareFile(env: Env, p: Principal, yardId: string, taskId
 export async function reviewGet(env: Env, p: Principal, yardId: string, taskId: string, agentId: string): Promise<Review[]> {
   await assertTask(env, p, yardId, taskId);
   return listReviews(env.DB, yardId, taskId, agentId);
+}
+
+// ── asks: what needs a person ─────────────────────────────────────────────
+
+/** Everything waiting on a person, across the yards the caller can see. */
+export async function inbox(env: Env, p: Principal): Promise<{ asks: (Ask & { yardName: string; taskTitle: string | null; agentName: string | null })[] }> {
+  assertPerson(p);
+  const yards = await yardsList(env, p);
+  const asks = await openAsks(env.DB, yards.filter((y) => y.summary.needsYou > 0).map((y) => y.id));
+  const tasks = new Map<string, string>();
+  const agents = new Map<string, string>();
+  const keys = [...new Set(asks.filter((a) => a.taskId).map((a) => `${a.yardId}/${a.taskId}`))];
+  await Promise.all(
+    keys.map(async (k) => {
+      const [yardId, taskId] = k.split("/") as [string, string];
+      const t = await getTask(env.DB, yardId, taskId);
+      if (t) tasks.set(k, t.title);
+      for (const a of await listAgents(env.DB, yardId, taskId)) agents.set(`${k}/${a.id}`, a.name);
+    }),
+  );
+  const names = new Map(yards.map((y) => [y.id, y.name]));
+  return {
+    asks: asks.map((a) => ({
+      ...a,
+      yardName: names.get(a.yardId) ?? a.yardId,
+      taskTitle: a.taskId ? (tasks.get(`${a.yardId}/${a.taskId}`) ?? null) : null,
+      agentName: a.agentId ? (agents.get(`${a.yardId}/${a.taskId}/${a.agentId}`) ?? null) : null,
+    })),
+  };
+}
+
+/** An agent is blocked and needs a person. It keeps working on anything else meanwhile. */
+export async function askCreate(env: Env, p: Principal, yardId: string, taskId: string, input: AskInput & { agentId?: string }): Promise<Ask> {
+  const agentId = await actingAgent(env, p, yardId, taskId, input.agentId);
+  const yard = await mustYard(env, yardId);
+  const task = await mustTask(env, yardId, taskId);
+  if (task.status !== "open") throw new ServiceError(409, `task is ${task.status}`);
+  const options = (input.options ?? []).map((label, i) => ({ id: `o${i + 1}`, label }));
+  return yardStub(env, yard).openAsk(taskId, agentId, "question", input.question, input.context ?? null, options);
+}
+
+export async function askGet(env: Env, p: Principal, yardId: string, askId: string): Promise<Ask> {
+  await assertYard(env, p, yardId);
+  const ask = await getAsk(env.DB, yardId, askId);
+  if (!ask || (p.kind === "agent" && ask.taskId !== p.taskId)) throw new ServiceError(404, `ask ${askId} not found`);
+  return ask;
+}
+
+/**
+ * A person answers. Autopilot's decision options act right away: `merge:<agent>`
+ * merges that fork, `abandon` abandons the task. Anything else is passed to the agent.
+ */
+export async function askAnswer(env: Env, p: Principal, yardId: string, askId: string, input: AnswerInput): Promise<Ask> {
+  assertPerson(p);
+  const ask = await askGet(env, p, yardId, askId);
+  if (ask.status !== "open") throw new ServiceError(409, "already answered");
+  const option = input.optionId ? ask.options.find((o) => o.id === input.optionId) : undefined;
+  if (input.optionId && !option) throw new ServiceError(400, `unknown option ${input.optionId}`);
+  if (ask.kind === "decision" && ask.taskId && option) {
+    if (option.id.startsWith("merge:")) await decide(env, p, yardId, ask.taskId, { mode: "winner", winnerAgentId: option.id.slice(6) });
+    else if (option.id === "abandon") await taskAbandon(env, p, yardId, ask.taskId, "abandoned from the inbox");
+    // Deciding closes the task's asks; record who chose what on this one.
+    const after = await getAsk(env.DB, yardId, askId);
+    if (after && after.status !== "open") {
+      await env.DB.prepare("UPDATE asks SET answer = ?, answered_by = ? WHERE yard_id = ? AND id = ?").bind(option.label, p.label, yardId, askId).run();
+      return { ...after, answer: option.label, answeredBy: p.label };
+    }
+  }
+  const answer = [option?.label, input.text?.trim()].filter(Boolean).join(" — ");
+  const yard = await mustYard(env, yardId);
+  return yardStub(env, yard).answerAsk(askId, answer, p.label);
+}
+
+export async function setAutopilot(env: Env, p: Principal, yardId: string, taskId: string, on: boolean) {
+  await assertMemberOrAdmin(env, p, yardId);
+  const yard = await mustYard(env, yardId);
+  const task = await mustTask(env, yardId, taskId);
+  if (task.status !== "open") throw new ServiceError(409, `task is ${task.status}`);
+  return { autopilot: await yardStub(env, yard).setAutopilotFor(taskId, on) };
 }
 
 // ── decisions ──────────────────────────────────────────────────────────────

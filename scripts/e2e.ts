@@ -29,6 +29,64 @@ async function expectStatus(p: Promise<unknown>, status: number, label: string) 
 
 type Ev = { type: string; agentId: string | null; data: Record<string, unknown> };
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+type TaskDetail = {
+  task: { status: string };
+  agents: { id: string; status: string }[];
+  decision: { decidedBy: string; winnerAgentId: string | null } | null;
+  autopilot: string;
+  asks: { id: string; kind: string; status: string; options: { id: string; label: string }[] }[];
+};
+
+/** Agents work alone; a person is only asked when an agent is blocked or no fork is good enough. */
+async function autopilotChecks() {
+  const t = await api<{ task: { id: string }; credentials: { agentId: string; apiKey: string }[] }>(`/yards/${yardId}/tasks`, {
+    body: { title: "Autopilot probe", agents: [{ name: "Ann", harness: "test" }, { name: "Bo", harness: "test" }] },
+  });
+  const path = `/yards/${yardId}/tasks/${t.task.id}`;
+  const [ann, bo] = t.credentials.map((c) => c.apiKey) as [string, string];
+  const asked = await new Mcp(ann).call<{ id: string; options: { id: string }[] }>("ask_human", {
+    question: "Which store should sessions use?",
+    options: ["KV", "D1"],
+  });
+  const inbox = await api<{ asks: { id: string; agentName: string | null }[] }>("/inbox");
+  check(inbox.asks.some((a) => a.id === asked.data.id && a.agentName === "Ann"), "a blocked agent's question lands in the inbox");
+
+  for (const [key, name] of [[ann, "Ann"], [bo, "Bo"]] as const) {
+    const ws = await new Mcp(key).call<{ git: { remote: string; token: string } }>("workspace_get");
+    const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${yardId}-${name}`, ws.data.git.token, { name, email: `${name}@e` });
+    await g.write(`notes/${name.toLowerCase()}.md`, `# ${name}\n\nSessions live in D1.\n`);
+    await g.commitAndPush(`docs: ${name}'s notes`);
+  }
+  let d = await api<TaskDetail>(path);
+  for (let i = 0; i < 60 && !d.agents.every((a) => a.status === "reviewed"); i++) {
+    await sleep(500);
+    d = await api<TaskDetail>(path);
+  }
+  check(d.agents.every((a) => a.status === "reviewed"), "both forks pushed and reviewed");
+  await sleep(5000);
+  d = await api<TaskDetail>(path);
+  check(d.task.status === "open" && d.autopilot === "waiting", "autopilot holds while an agent waits on a person");
+
+  await api(`/yards/${yardId}/asks/${asked.data.id}/answer`, { body: { optionId: asked.data.options[1]!.id } });
+  const status = await new Mcp(ann).call<{ status: string; answer: string }>("ask_status", { askId: asked.data.id });
+  check(status.data.status === "answered" && status.data.answer === "D1", "the agent reads the answer with ask_status");
+
+  for (let i = 0; i < 40 && d.task.status === "open" && d.autopilot === "waiting"; i++) {
+    await sleep(500);
+    d = await api<TaskDetail>(path);
+  }
+  if (d.autopilot === "handed") {
+    // Below the bar: autopilot hands the decision over with one-click options.
+    const ask = d.asks.find((a) => a.kind === "decision" && a.status === "open");
+    check(!!ask?.options.some((o) => o.id.startsWith("merge:")), "below the bar, autopilot asks a person with merge options");
+    await api(`/yards/${yardId}/asks/${ask!.id}/answer`, { body: { optionId: ask!.options[0]!.id } });
+    d = await api<TaskDetail>(path);
+    check(d.task.status === "decided", "answering the decision ask merges that fork");
+  } else check(d.task.status === "decided" && d.decision?.decidedBy === "autopilot", "autopilot merged the best fork once the agents settled");
+}
+
 async function main() {
   console.log(`e2e → ${BASE}\n`);
   const seed = await run("npx", ["tsx", "scripts/seed.ts", "--pace=fast", `--yard=${yardId}`], { env: process.env, maxBuffer: 8 << 20 });
@@ -104,6 +162,8 @@ async function main() {
   check(/^[0-9a-f]{40}$/.test(sha), "plain git push with the scoped token");
 
   await oauthChecks(t2.task.id);
+
+  await autopilotChecks();
 
   await api(`/yards/${yardId}/tasks/${t2.task.id}/abandon`, { body: { reason: "e2e done" } });
 

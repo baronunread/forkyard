@@ -1,4 +1,4 @@
-import { Budgets, type Agent, type ChangedFile, type Decision, type Intent, type Review, type Task, type Yard } from "@forkyard/shared";
+import { Budgets, type Agent, type Ask, type ChangedFile, type Decision, type Intent, type Review, type Task, type Yard } from "@forkyard/shared";
 
 /** Row mappers and small queries over D1. */
 
@@ -213,4 +213,42 @@ export function newId(prefix = ""): string {
 
 export function now(): string {
   return new Date().toISOString();
+}
+
+export function askFromRow(r: Row): Ask {
+  return {
+    id: String(r.id),
+    yardId: String(r.yard_id),
+    taskId: s(r.task_id),
+    agentId: s(r.agent_id),
+    kind: r.kind as Ask["kind"],
+    question: String(r.question),
+    context: s(r.context),
+    options: JSON.parse(String(r.options ?? "[]")) as Ask["options"],
+    status: r.status as Ask["status"],
+    answer: s(r.answer),
+    answeredBy: s(r.answered_by),
+    createdAt: String(r.created_at),
+    answeredAt: s(r.answered_at),
+  };
+}
+
+export async function getAsk(db: D1Database, yardId: string, id: string): Promise<Ask | null> {
+  const r = await db.prepare("SELECT * FROM asks WHERE yard_id = ? AND id = ?").bind(yardId, id).first();
+  return r ? askFromRow(r) : null;
+}
+
+/** Open asks across the given yards, oldest first: the oldest has waited longest. */
+export async function openAsks(db: D1Database, yardIds: string[]): Promise<Ask[]> {
+  if (!yardIds.length) return [];
+  const out: Ask[] = [];
+  for (let i = 0; i < yardIds.length; i += 90) {
+    const ids = yardIds.slice(i, i + 90);
+    const { results } = await db
+      .prepare(`SELECT * FROM asks WHERE status = 'open' AND yard_id IN (${ids.map(() => "?").join(",")}) ORDER BY created_at LIMIT 200`)
+      .bind(...ids)
+      .all();
+    out.push(...results.map(askFromRow));
+  }
+  return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

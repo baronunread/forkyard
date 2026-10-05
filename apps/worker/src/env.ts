@@ -27,6 +27,10 @@ export interface Env {
   ARTIFACT_EVENTS?: Queue;
   REVIEW_WORKFLOW: Workflow<ReviewParams>;
   AI?: Ai;
+  /** Autopilot merges the best fork once every agent's head is reviewed and the task has been quiet this long (default 15000). */
+  AUTOPILOT_QUIET_MS?: string;
+  /** The lowest review score autopilot merges without asking (default 60). */
+  AUTOPILOT_MIN_SCORE?: string;
   /** Reviews in flight per yard at once (default 16); the rest queue. */
   REVIEW_CONCURRENCY?: string;
   /** "off" skips the review pipeline on push (diagnostics; overlaps then come from claims only). */

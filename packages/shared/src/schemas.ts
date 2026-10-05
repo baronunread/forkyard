@@ -284,8 +284,61 @@ export const CreateTaskInput = z.object({
   title: z.string().min(1).max(120),
   brief: z.string().max(8000).default(""),
   agents: z.array(AgentSpec).min(1).max(10_000),
+  /** Merge the best reviewed fork without asking once the agents settle. Off: a person decides. */
+  autopilot: z.boolean().default(true),
 });
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
+
+/**
+ * Where a task's autopilot stands:
+ *  - waiting: agents are still working, or reviews are still running
+ *  - merged:  autopilot merged the best fork
+ *  - handed:  autopilot could not decide alone and asked a person (see the open ask)
+ *  - off:     a person decides this task
+ */
+export const AutopilotState = z.enum(["waiting", "merged", "handed", "off"]);
+export type AutopilotState = z.infer<typeof AutopilotState>;
+
+export const AskKind = z.enum(["question", "decision"]);
+export type AskKind = z.infer<typeof AskKind>;
+
+export const AskOption = z.object({ id: z.string().min(1).max(80), label: z.string().min(1).max(200) });
+export type AskOption = z.infer<typeof AskOption>;
+
+/**
+ * A request for a person. Agents raise `question`s when they are blocked
+ * (ask_human); autopilot raises a `decision` when it cannot merge on its own.
+ * Everything else is the agents' job.
+ */
+export const Ask = z.object({
+  id: z.string(),
+  yardId: z.string(),
+  taskId: z.string().nullable(),
+  agentId: z.string().nullable(),
+  kind: AskKind,
+  question: z.string(),
+  context: z.string().nullable(),
+  options: z.array(AskOption),
+  status: z.enum(["open", "answered"]),
+  answer: z.string().nullable(),
+  answeredBy: z.string().nullable(),
+  createdAt: z.string(),
+  answeredAt: z.string().nullable(),
+});
+export type Ask = z.infer<typeof Ask>;
+
+export const AskInput = z.object({
+  question: z.string().min(1).max(500),
+  context: z.string().max(4000).optional(),
+  options: z.array(z.string().min(1).max(200)).max(6).optional(),
+});
+export type AskInput = z.infer<typeof AskInput>;
+
+export const AnswerInput = z.object({
+  optionId: z.string().optional(),
+  text: z.string().max(4000).optional(),
+}).refine((a) => a.optionId || a.text?.trim(), "pick an option or write an answer");
+export type AnswerInput = z.infer<typeof AnswerInput>;
 
 export const IntentInput = z.object({
   summary: z.string().min(1).max(200),

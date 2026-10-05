@@ -11,6 +11,9 @@ import {
   summarize,
   type Agent,
   type AgentCredential,
+  type Ask,
+  type AskKind,
+  type AutopilotState,
   type ChangedFile,
   type Claim,
   type CreateTaskInput,
@@ -27,7 +30,8 @@ import {
   type YardEvent,
 } from "@forkyard/shared";
 import { disposeRepo, errorCode, getArtifacts, type Repo } from "./artifacts";
-import { agentFromRow, getYard, latestIntents, listAgents, newId, now, sha256Hex } from "./db";
+import { agentFromRow, askFromRow, getAsk, getYard, latestIntents, latestReviews, listAgents, newId, now, sha256Hex } from "./db";
+import { applyDecision, DecideError } from "./decide";
 import { mapLimit } from "./diff";
 import { num, type Env } from "./env";
 
@@ -72,6 +76,10 @@ export interface YardStatus {
   reviews: { running: number; queued: number };
   /** Recent activity from the event log: pushes per bucket (oldest first) and per-minute rates. */
   pulse: { buckets: number[]; bucketMs: number; pushesPerMin: number; reviewsPerMin: number; overlapsPerMin: number };
+  /** What needs a person in this yard, oldest first. */
+  asks: Ask[];
+  /** Autopilot state per task. */
+  autopilot: Record<string, AutopilotState>;
 }
 
 export interface PushInput {
@@ -127,6 +135,7 @@ export class Yard extends DurableObject<Env> {
         task_id TEXT NOT NULL, agent_id TEXT NOT NULL, token TEXT NOT NULL, expires_at TEXT,
         PRIMARY KEY (task_id, agent_id)
       );
+      CREATE TABLE IF NOT EXISTS autopilot (task_id TEXT PRIMARY KEY, state TEXT NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS k2_samples (seq INTEGER NOT NULL, type TEXT NOT NULL, latency_ms REAL NOT NULL, observed_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS live_samples (seq INTEGER NOT NULL, latency_ms REAL NOT NULL, observed_at TEXT NOT NULL);
     `);
@@ -316,6 +325,7 @@ export class Yard extends DurableObject<Env> {
     // D1 batches are transactions; keep each one small so a thousand-agent fan-out doesn't hit limits.
     for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
 
+    this.setAutopilot(taskId, input.autopilot === false ? "off" : "waiting");
     await this.append({ type: "task.created", taskId, agentId: null, data: { task, agentIds: agents.map((a) => a.id) } });
     for (const a of agents) await this.append({ type: "agent.forking", taskId, agentId: a.id, data: { agent: a } });
 
@@ -871,6 +881,7 @@ export class Yard extends DurableObject<Env> {
     if (row?.head_commit && row.head_commit !== review.commit)
       this.sql.exec("INSERT OR IGNORE INTO reviews_pending (task_id, agent_id, queued_at) VALUES (?, ?, ?)", review.taskId, review.agentId, Date.now());
     await this.drainReviews();
+    if (this.autopilotOf(review.taskId) === "waiting") await this.wakeAt(Date.now() + this.quietMs());
   }
 
   /** A review gave up (its Workflow failed): free the slot and let the queue move. */
@@ -888,7 +899,9 @@ export class Yard extends DurableObject<Env> {
     this.sql.exec("DELETE FROM claims WHERE task_id = ?", decision.taskId);
     this.sql.exec("UPDATE overlaps SET active = 0 WHERE task_id = ?", decision.taskId);
     this.sql.exec("DELETE FROM fork_tokens WHERE task_id = ?", decision.taskId);
+    if (decision.decidedBy === "autopilot") this.setAutopilot(decision.taskId, "merged");
     await this.append({ type: "decision.made", taskId: decision.taskId, agentId: null, data: { decision } });
+    await this.closeAsks(decision.taskId, "The task was decided.");
   }
 
   async abandon(taskId: string, reason: string): Promise<void> {
@@ -901,6 +914,7 @@ export class Yard extends DurableObject<Env> {
     this.sql.exec("UPDATE overlaps SET active = 0 WHERE task_id = ?", taskId);
     this.sql.exec("DELETE FROM fork_tokens WHERE task_id = ?", taskId);
     await this.append({ type: "task.abandoned", taskId, agentId: null, data: { reason } });
+    await this.closeAsks(taskId, "The task was abandoned.");
   }
 
   async forkDeleted(taskId: string, agentId: string, name: string): Promise<void> {
@@ -961,6 +975,10 @@ export class Yard extends DurableObject<Env> {
         queued: Number(this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM reviews_pending").one().n),
       },
       pulse: this.pulse(),
+      asks: await this.openAsks(),
+      autopilot: Object.fromEntries(
+        this.sql.exec<{ task_id: string; state: string }>("SELECT task_id, state FROM autopilot").toArray().map((r) => [r.task_id, r.state as AutopilotState]),
+      ),
     };
   }
 
@@ -1079,6 +1097,7 @@ export class Yard extends DurableObject<Env> {
   /** One alarm, two jobs: keep the review queue moving, and poll K2 while a spike window is open. */
   override async alarm(): Promise<void> {
     await this.drainReviews().catch((err) => console.error("review drain failed", err));
+    await this.autopilotSweep().catch((err) => console.error("autopilot sweep failed", err));
     const until = Number(this.sql.exec<{ v: string }>("SELECT v FROM meta WHERE k = 'k2_until'").toArray()[0]?.v ?? 0);
     const k2 = this.k2Configured() && Date.now() <= until;
     if (k2) {
@@ -1089,14 +1108,189 @@ export class Yard extends DurableObject<Env> {
       }
     }
     const reviewsWaiting = Number(this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM reviews_pending").one().n) > 0;
-    if (k2) await this.ctx.storage.setAlarm(Date.now() + 250);
-    else if (reviewsWaiting) await this.ctx.storage.setAlarm(Date.now() + REVIEW_TICK_MS);
+    if (k2) await this.wakeAt(Date.now() + 250);
+    else if (reviewsWaiting) await this.wakeAt(Date.now() + REVIEW_TICK_MS);
+  }
+
+  /** Bring the alarm forward to `t` if it isn't already due sooner. */
+  private async wakeAt(t: number): Promise<void> {
+    const at = await this.ctx.storage.getAlarm();
+    if (at === null || at <= Date.now() || at > t) await this.ctx.storage.setAlarm(t);
   }
 
   /** Make sure the alarm will look at the review queue soon. */
   private async scheduleReviewTick(): Promise<void> {
-    const at = await this.ctx.storage.getAlarm();
-    if (at === null || at > Date.now() + REVIEW_TICK_MS) await this.ctx.storage.setAlarm(Date.now() + REVIEW_TICK_MS);
+    await this.wakeAt(Date.now() + REVIEW_TICK_MS);
+  }
+
+  // ── asks: what needs a person ─────────────────────────────────────────────
+
+  async openAsk(taskId: string | null, agentId: string | null, kind: AskKind, question: string, context: string | null, options: Ask["options"]): Promise<Ask> {
+    const yard = await this.yard();
+    const ask: Ask = {
+      id: newId("ask_"),
+      yardId: yard.id,
+      taskId,
+      agentId,
+      kind,
+      question,
+      context,
+      options,
+      status: "open",
+      answer: null,
+      answeredBy: null,
+      createdAt: now(),
+      answeredAt: null,
+    };
+    await this.env.DB.prepare(
+      "INSERT INTO asks (id, yard_id, task_id, agent_id, kind, question, context, options, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+    )
+      .bind(ask.id, yard.id, taskId, agentId, kind, question, context, JSON.stringify(options), ask.createdAt)
+      .run();
+    await this.append({ type: "ask.opened", taskId, agentId, data: { ask } });
+    return ask;
+  }
+
+  async answerAsk(id: string, answer: string, by: string): Promise<Ask> {
+    const yard = await this.yard();
+    const at = now();
+    const res = await this.env.DB.prepare("UPDATE asks SET status = 'answered', answer = ?, answered_by = ?, answered_at = ? WHERE yard_id = ? AND id = ? AND status = 'open'")
+      .bind(answer, by, at, yard.id, id)
+      .run();
+    const ask = await getAsk(this.env.DB, yard.id, id);
+    if (!ask) throw new Error(`ask ${id} not found`);
+    if (res.meta.changes) await this.append({ type: "ask.answered", taskId: ask.taskId, agentId: ask.agentId, data: { ask } });
+    if (ask.taskId && this.autopilotOf(ask.taskId) === "waiting") await this.wakeAt(Date.now() + this.quietMs());
+    return ask;
+  }
+
+  private async openAsks(taskId?: string): Promise<Ask[]> {
+    const yard = await this.yard();
+    const stmt = taskId
+      ? this.env.DB.prepare("SELECT * FROM asks WHERE yard_id = ? AND task_id = ? AND status = 'open' ORDER BY created_at").bind(yard.id, taskId)
+      : this.env.DB.prepare("SELECT * FROM asks WHERE yard_id = ? AND status = 'open' ORDER BY created_at LIMIT 200").bind(yard.id);
+    return (await stmt.all()).results.map(askFromRow);
+  }
+
+  /** A decided or abandoned task has nothing left to ask about. */
+  private async closeAsks(taskId: string, answer: string): Promise<void> {
+    for (const ask of await this.openAsks(taskId)) await this.answerAsk(ask.id, answer, "forkyard");
+  }
+
+  // ── autopilot: merge the best fork once the agents settle ────────────────
+
+  autopilotOf(taskId: string): AutopilotState {
+    return (this.sql.exec<{ state: string }>("SELECT state FROM autopilot WHERE task_id = ?", taskId).toArray()[0]?.state as AutopilotState) ?? "off";
+  }
+
+  private setAutopilot(taskId: string, state: AutopilotState): void {
+    this.sql.exec("INSERT OR REPLACE INTO autopilot (task_id, state, updated_at) VALUES (?, ?, ?)", taskId, state, Date.now());
+  }
+
+  /** A person took the decision over (or handed it back). */
+  async setAutopilotFor(taskId: string, on: boolean): Promise<AutopilotState> {
+    const cur = this.autopilotOf(taskId);
+    if (cur === "merged") return cur;
+    this.setAutopilot(taskId, on ? "waiting" : "off");
+    if (on) await this.wakeAt(Date.now() + 100);
+    return on ? "waiting" : "off";
+  }
+
+  private quietMs(): number {
+    return Math.max(0, num(this.env.AUTOPILOT_QUIET_MS, 15_000));
+  }
+
+  /**
+   * For every task on autopilot: once every agent has pushed and its newest head is
+   * reviewed, nobody is waiting on a person, and the task has been quiet for a moment,
+   * merge the best-scoring fork. Below the bar, or if the merge can't apply, hand the
+   * decision to a person with the top candidates as one-click answers.
+   */
+  private async autopilotSweep(): Promise<void> {
+    const waiting = this.sql.exec<{ task_id: string }>("SELECT task_id FROM autopilot WHERE state = 'waiting'").toArray();
+    if (!waiting.length) return;
+    const yard = await this.yard();
+    const quiet = this.quietMs();
+    const minScore = num(this.env.AUTOPILOT_MIN_SCORE, 60);
+    for (const { task_id: taskId } of waiting) {
+      const t = await this.env.DB.prepare("SELECT * FROM tasks WHERE yard_id = ? AND id = ?").bind(yard.id, taskId).first();
+      if (!t || t.status !== "open") {
+        this.setAutopilot(taskId, "off");
+        continue;
+      }
+      const reviewing = Number(
+        this.sql.exec<{ n: number }>(
+          "SELECT (SELECT COUNT(*) FROM reviews_pending WHERE task_id = ?) + (SELECT COUNT(*) FROM reviews_inflight WHERE task_id = ?) AS n",
+          taskId,
+          taskId,
+        ).one().n,
+      );
+      if (reviewing) continue; // onReview wakes us again
+      const agents = (await listAgents(this.env.DB, yard.id, taskId)).filter((a) => a.status !== "failed" && a.status !== "retired");
+      if (!agents.length || agents.some((a) => a.status !== "reviewed")) continue; // the next review wakes us again
+      if ((await this.openAsks(taskId)).length) continue; // someone is waiting on a person
+      const last = this.sql
+        .exec<{ ts: string | null }>("SELECT MAX(ts) AS ts FROM events WHERE task_id = ? AND type IN ('push.received', 'intent.recorded', 'review.completed')", taskId)
+        .one().ts;
+      const settleAt = (last ? Date.parse(last) : 0) + quiet;
+      if (settleAt > Date.now()) {
+        await this.wakeAt(settleAt + 50);
+        continue;
+      }
+
+      const reviews = await latestReviews(this.env.DB, yard.id, taskId);
+      const ranked = agents
+        .map((a) => ({ agent: a, review: reviews.get(a.id) }))
+        .filter((x): x is { agent: Agent; review: Review } => !!x.review && x.review.commit === x.agent.headCommit)
+        .sort((a, b) => b.review.score - a.review.score || a.agent.createdAt.localeCompare(b.agent.createdAt));
+      const best = ranked[0];
+      if (!best) continue;
+      const task: Task = {
+        id: taskId,
+        yardId: yard.id,
+        title: String(t.title),
+        brief: String(t.brief),
+        status: "open",
+        baseCommit: String(t.base_commit),
+        createdAt: String(t.created_at),
+        decidedAt: null,
+      };
+      const options = [
+        ...ranked.slice(0, 3).map((x) => ({ id: `merge:${x.agent.id}`, label: `Merge ${x.agent.name}'s fork (${x.review.score}/100)` })),
+        { id: "abandon", label: "Abandon the task" },
+      ];
+      if (best.review.score < minScore) {
+        this.setAutopilot(taskId, "handed");
+        await this.openAsk(
+          taskId,
+          null,
+          "decision",
+          `No fork cleared the bar on “${task.title}”.`,
+          `The best is ${best.agent.name} at ${best.review.score}/100; autopilot merges at ${minScore} or above. ${best.review.summary}`,
+          options,
+        );
+        continue;
+      }
+      try {
+        const runnerUp = ranked[1];
+        const { decision } = await applyDecision(
+          this.env,
+          yard,
+          task,
+          {
+            mode: "winner",
+            winnerAgentId: best.agent.id,
+            message: `${task.title}\n\nAutopilot: ${best.agent.name} scored ${best.review.score}/100${runnerUp ? `, ahead of ${runnerUp.agent.name} at ${runnerUp.review.score}` : ""}.`,
+          },
+          "autopilot",
+        );
+        await this.onDecision(decision);
+      } catch (err) {
+        this.setAutopilot(taskId, "handed");
+        const why = err instanceof DecideError ? err.message : String(err);
+        await this.openAsk(taskId, null, "decision", `Autopilot couldn't merge ${best.agent.name}'s fork on “${task.title}”.`, why, options);
+      }
+    }
   }
 
   private async consumeK2Once(): Promise<void> {

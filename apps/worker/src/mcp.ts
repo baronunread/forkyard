@@ -1,6 +1,6 @@
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { ClaimInput, CreateTaskInput, CreateYardInput, DecideInput, describeEvent, IntentInput, MCP_TOOLS } from "@forkyard/shared";
+import { AskInput, ClaimInput, CreateTaskInput, CreateYardInput, DecideInput, describeEvent, IntentInput, MCP_TOOLS } from "@forkyard/shared";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Principal } from "./auth";
@@ -56,7 +56,7 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
   const server = new McpServer(
     { name: "forkyard", version: "0.1.0" },
     {
-      instructions: `Forkyard: agent-native Git on Cloudflare. Start with workspace_get, then claim_paths before editing, intent_record before pushing. Docs: ${origin}/llms.txt`,
+      instructions: `Forkyard: agent-native Git on Cloudflare. Start with workspace_get, then claim_paths before editing, intent_record before pushing. Work on your own; ask_human only when truly blocked. Docs: ${origin}/llms.txt`,
     },
   );
 
@@ -205,6 +205,26 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
       const s = resolve(p, a);
       if (!s.agentId) throw new svc.ServiceError(400, "agentId is required");
       return ok({ reviews: await svc.reviewGet(env, p, s.yardId, s.taskId, s.agentId) });
+    }),
+  );
+
+  server.registerTool(
+    "ask_human",
+    { description: desc.ask_human, inputSchema: AskInput.extend({ ...scope, agentId: z.string().optional() }) },
+    wrap(async (a) => {
+      const s = resolve(p, a);
+      const ask = await svc.askCreate(env, p, s.yardId, s.taskId, { question: a.question, context: a.context, options: a.options, agentId: s.agentId });
+      return ok(ask, `Asked a person (${ask.id}). Keep working on anything that doesn't depend on the answer; it arrives as an ask.answered event, or call ask_status.`);
+    }),
+  );
+
+  server.registerTool(
+    "ask_status",
+    { description: desc.ask_status, inputSchema: z.object({ yardId: scope.yardId, askId: z.string() }) },
+    wrap(async (a) => {
+      const { yardId } = resolve(p, a, false);
+      const ask = await svc.askGet(env, p, yardId, a.askId);
+      return ok(ask, ask.status === "open" ? "Not answered yet." : `Answered by ${ask.answeredBy}: ${ask.answer}`);
     }),
   );
 
