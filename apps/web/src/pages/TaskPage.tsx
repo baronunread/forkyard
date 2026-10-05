@@ -12,7 +12,7 @@ import { DecideView } from "../components/DecideView";
 import { FileTreePane } from "../components/FileTreePane";
 import { TaskStatusBadge } from "../components/Status";
 import { Timeline } from "../components/Timeline";
-import { Button, Card, Eyebrow } from "../components/ui";
+import { Button, Card, SectionTitle } from "../components/ui";
 import { useCommands } from "../lib/commands";
 import { useYardSync } from "../lib/live";
 import { usePersistent } from "../lib/persistent";
@@ -154,10 +154,10 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
 
       <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)] gap-6 px-6 pb-6">
         <aside className="flex min-h-0 flex-col">
-          <Eyebrow className="flex h-9 items-center justify-between">
-            <span>Files</span>
-            <span>{files.length}</span>
-          </Eyebrow>
+          <div className="flex h-9 items-center justify-between">
+            <SectionTitle>Files</SectionTitle>
+            <span className="text-xs text-muted tabular-nums">{files.length}</span>
+          </div>
           <Card className="min-h-0 flex-1 overflow-hidden">
             {files.length ? (
               <FileTreePane files={files} agents={agents} selected={selectedFile} onSelect={(p) => go({ file: p, view: view === "changes" ? undefined : "compare" })} />

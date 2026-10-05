@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AgentBadge, AgentStack } from "../components/AgentChip";
 import { CreateTaskDialog, CreateYardDialog } from "../components/CreateDialogs";
 import { STATUS, TaskStatusBadge } from "../components/Status";
-import { Button, Card, cx, Dot, Eyebrow, Kbd, Stat } from "../components/ui";
+import { Button, Card, cx, Dot, Kbd, SectionTitle, Stat } from "../components/ui";
 import type { YardList, YardStatus } from "../lib/api";
 import { useCommands } from "../lib/commands";
 import { ago } from "../lib/format";
@@ -85,7 +85,9 @@ function YardRail({ yards, loading, selected, onNew }: { yards: YardList; loadin
   return (
     <aside className="flex min-h-0 flex-col border-r border-line bg-surface max-md:hidden" aria-label="Yards">
       <div className="flex items-center justify-between px-4 pt-5 pb-3">
-        <Eyebrow>Yards · {yards.length}</Eyebrow>
+        <SectionTitle>
+          Yards <span className="font-normal text-muted tabular-nums">{yards.length}</span>
+        </SectionTitle>
         <Button size="sm" variant="ghost" icon={<Plus />} onClick={onNew} aria-label="New yard">
           New
         </Button>
@@ -126,7 +128,7 @@ function YardRail({ yards, loading, selected, onNew }: { yards: YardList; loadin
         {!loading && yards.length > 0 && shown.length === 0 && <p className="px-3 py-2 text-[13px] text-body">No yard matches “{q}”.</p>}
       </nav>
       <div className="border-t border-line p-4">
-        <Eyebrow>Connect an agent</Eyebrow>
+        <SectionTitle>Connect an agent</SectionTitle>
         <p className="mt-1.5 text-xs text-body">Add this MCP server to Claude Code, Codex or Cursor. It signs you in and asks what the agent works on.</p>
         <div className="mt-2">
           <ClipboardText text={`${location.origin}/mcp`} />
@@ -230,7 +232,7 @@ function YardOverview({ yard }: { yard: string }) {
       <div className="mt-6 grid grid-cols-[minmax(0,1fr)_340px] items-start gap-6 max-lg:grid-cols-1">
         <section aria-label="Tasks">
           <div className="mb-2 flex h-8 items-center justify-between">
-            <Eyebrow>Tasks</Eyebrow>
+            <SectionTitle>Tasks</SectionTitle>
             <span className="text-xs text-muted">{open.length} open</span>
           </div>
           {tasks.length === 0 ? (
@@ -248,7 +250,7 @@ function YardOverview({ yard }: { yard: string }) {
           {working.length > 0 && (
             <>
               <div className="mt-6 mb-2 flex h-8 items-center justify-between">
-                <Eyebrow>Agents on open tasks</Eyebrow>
+                <SectionTitle>Agents on open tasks</SectionTitle>
                 <span className="text-xs text-muted">{working.length} working</span>
               </div>
               <Card className="overflow-hidden">
@@ -274,7 +276,7 @@ function YardOverview({ yard }: { yard: string }) {
           <SwarmPulse yard={yard} reviews={s.reviews} pulse={s.pulse} />
           <section aria-label="Recent activity">
             <div className="mb-2 flex h-8 items-center">
-              <Eyebrow>Activity</Eyebrow>
+              <SectionTitle>Activity</SectionTitle>
             </div>
             <Card className="p-1.5">
               <ActivityFeed events={s.recent} status={s} now={now} />
@@ -282,7 +284,9 @@ function YardOverview({ yard }: { yard: string }) {
           </section>
           <section aria-label="Base branch">
             <div className="mb-2 flex h-8 items-center">
-              <Eyebrow>{s.yard.defaultBranch}</Eyebrow>
+              <SectionTitle>
+                Latest on <span className="font-mono text-[13px] font-normal">{s.yard.defaultBranch}</span>
+              </SectionTitle>
             </div>
             <Card className="divide-y divide-line">
               {base.isPending && (
@@ -378,7 +382,7 @@ function HotFiles({ status }: { status: YardStatus }) {
   return (
     <>
       <div className="mt-6 mb-2 flex h-8 items-center justify-between">
-        <Eyebrow>Hot files</Eyebrow>
+        <SectionTitle>Hot files</SectionTitle>
         <span className="text-xs text-muted">{byPath.size} files in overlaps</span>
       </div>
       <Card className="divide-y divide-line">
@@ -409,8 +413,8 @@ function SwarmPulse({ yard, reviews, pulse }: { yard: string; reviews: YardStatu
   return (
     <section aria-label="Live pulse">
       <div className="mb-2 flex h-8 items-center justify-between">
-        <Eyebrow>Pulse</Eyebrow>
-        <span className="font-mono text-[11px] text-muted">last 2 min</span>
+        <SectionTitle>Pulse</SectionTitle>
+        <span className="text-xs text-muted">Last 2 minutes</span>
       </div>
       <Card className="p-4">
         <div className="flex items-baseline gap-2">

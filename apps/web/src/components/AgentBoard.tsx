@@ -114,12 +114,12 @@ export function AgentBoard({ detail, compare, selected, onSelect }: { detail: Ta
             );
           })}
         </div>
-        <span className="ml-auto font-mono text-xs text-muted">
+        <span className="ml-auto text-xs text-muted tabular-nums">
           {data.length === all.length ? `${all.length} agents` : `${data.length} of ${all.length}`}
         </span>
       </div>
 
-      <div className={cx(GRID, "border-b border-line px-3 font-mono text-[11px] uppercase text-muted")} role="row">
+      <div className={cx(GRID, "border-b border-line px-3 text-xs font-medium text-body")} role="row">
         {table.getHeaderGroups()[0]!.headers.map((h) => {
           const sorted = h.column.getIsSorted();
           return (

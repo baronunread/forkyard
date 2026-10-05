@@ -55,9 +55,9 @@ export function Card({ className, interactive, ...rest }: HTMLAttributes<HTMLDiv
   return <div className={cx("rounded-lg bg-surface shadow-card", interactive && "transition-shadow hover:shadow-card-hover", className)} {...rest} />;
 }
 
-/** Technical eyebrow: mono, uppercase, muted. */
-export function Eyebrow({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cx("font-mono text-xs uppercase text-muted", className)} {...rest} />;
+/** Section heading: sentence case, sans, 14/500. Never uppercase, never mono. */
+export function SectionTitle({ className, ...rest }: HTMLAttributes<HTMLHeadingElement>) {
+  return <h2 className={cx("text-sm font-medium text-fg", className)} {...rest} />;
 }
 
 export function Kbd({ children, className }: { children: ReactNode; className?: string }) {
@@ -73,7 +73,7 @@ export function Dot({ color, pulse, className }: { color: string; pulse?: boolea
 export function Stat({ label, value, caption, tone }: { label: string; value: ReactNode; caption?: ReactNode; tone?: "warn" }) {
   return (
     <Card className="px-4 py-3.5">
-      <Eyebrow>{label}</Eyebrow>
+      <div className="text-[13px] text-body">{label}</div>
       <div className={cx("mt-1 text-stat tabular-nums", tone === "warn" ? "text-overlap" : "text-fg")}>{value}</div>
       {caption && <div className="mt-0.5 truncate text-xs text-body">{caption}</div>}
     </Card>

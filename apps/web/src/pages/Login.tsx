@@ -2,7 +2,7 @@ import { GithubLogo, GoogleLogo } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Logo } from "../components/TopBar";
-import { Button, Eyebrow } from "../components/ui";
+import { Button } from "../components/ui";
 import { authClient, oauthInFlight } from "../lib/auth-client";
 
 type Provider = "github" | "google";
@@ -58,7 +58,7 @@ export function Login() {
           )}
           {info && !info.providers.length && <p className="text-sm text-body">Sign-in isn't configured on this deployment.</p>}
         </div>
-        {info?.emulated && <Eyebrow className="mt-6">Local · providers emulated by emulate.dev</Eyebrow>}
+        {info?.emulated && <p className="mt-6 text-xs text-muted">Running locally. GitHub and Google are emulated by emulate.dev.</p>}
       </div>
     </div>
   );

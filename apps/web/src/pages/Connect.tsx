@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { AgentBadge } from "../components/AgentChip";
 import { Logo } from "../components/TopBar";
-import { Button, Eyebrow } from "../components/ui";
+import { Button, SectionTitle } from "../components/ui";
 import { call, client } from "../lib/api";
 import { authClient } from "../lib/auth-client";
 import { useMe } from "../lib/session";
@@ -79,7 +79,7 @@ export function Connect() {
           Choose whether it works as {user ? <b className="font-medium text-fg">{user.name}</b> : "you"} or as one agent seat.
         </p>
 
-        <Eyebrow className="mt-6 mb-2">Act as</Eyebrow>
+        <SectionTitle className="mt-6 mb-2">Act as</SectionTitle>
         {seats === null ? (
           <div className="py-6">
             <Loader />
