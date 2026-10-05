@@ -767,7 +767,32 @@ export class Yard extends DurableObject<Env> {
    *    reviews, not a thousand simultaneous Workflow instances.
    * A review that never reports back is considered lost after REVIEW_STALE_MS.
    */
+  /**
+   * One drain at a time: concurrent callers (alarm, onReview, a push) would otherwise both
+   * pick the same queued agent while the first is still awaiting D1. A call that arrives
+   * mid-drain asks for one more pass instead.
+   */
+  private draining: Promise<void> | null = null;
+  private drainAgain = false;
   private async drainReviews(): Promise<void> {
+    if (this.draining) {
+      this.drainAgain = true;
+      return this.draining;
+    }
+    this.draining = (async () => {
+      try {
+        do {
+          this.drainAgain = false;
+          await this.drainOnce();
+        } while (this.drainAgain);
+      } finally {
+        this.draining = null;
+      }
+    })();
+    return this.draining;
+  }
+
+  private async drainOnce(): Promise<void> {
     // Whatever happens below, the alarm comes back while anything is still queued.
     if (Number(this.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM reviews_pending").one().n) > 0) await this.scheduleReviewTick();
     const REVIEW_STALE_MS = 5 * 60_000;
@@ -795,6 +820,10 @@ export class Yard extends DurableObject<Env> {
         .first<{ head_commit: string | null; fork_name: string; status: string; base_commit: string; task_status: string }>();
       if (!row?.head_commit || row.task_status !== "open" || row.status === "retired") continue;
       const head = row.head_commit;
+      const running = this.sql
+        .exec<{ commit_hash: string }>("SELECT commit_hash FROM reviews_inflight WHERE task_id = ? AND agent_id = ?", taskId, agentId)
+        .toArray()[0];
+      if (running?.commit_hash === head) continue;
       const workflowId = this.reviewId(row.fork_name, head);
       this.sql.exec("INSERT OR REPLACE INTO reviews_inflight (task_id, agent_id, commit_hash, started_at) VALUES (?, ?, ?, ?)", taskId, agentId, head, Date.now());
       try {
