@@ -1,0 +1,47 @@
+{
+  "at": "2026-10-03T17:34:47.850Z",
+  "target": "http://localhost:8787",
+  "mode": "local",
+  "yardId": "swarm-o5c1r",
+  "agents": 1000,
+  "tasks": 10,
+  "rounds": 2,
+  "concurrency": 96,
+  "fanoutSeconds": 10.61,
+  "forkReadyMs": {
+    "n": 1000,
+    "p50": 5726.6,
+    "p95": 6386.1,
+    "p99": 6468.8,
+    "max": 6469.4
+  },
+  "pushes": 2000,
+  "pushesPerSecond": 29.3,
+  "pushMs": {
+    "n": 2000,
+    "p50": 3055.4,
+    "p95": 5037.2,
+    "p99": 5674.1,
+    "max": 8320.8
+  },
+  "pushToVisibleMs": {
+    "n": 2000,
+    "p50": 1051.4,
+    "p95": 2281.1,
+    "p99": 2393,
+    "max": 4453.9
+  },
+  "pushToDiffMs": {
+    "n": 2000,
+    "p50": 79010.5,
+    "p95": 138462.2,
+    "p99": 144623.4,
+    "max": 145438.8
+  },
+  "eventsSeen": 10132,
+  "overlapsDetected": 1378,
+  "watcherReconnects": 0,
+  "retries": 106,
+  "errors": 0,
+  "errorSamples": []
+}

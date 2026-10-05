@@ -1,0 +1,194 @@
+@source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
+@import "@cloudflare/kumo/styles/tailwind";
+@import "tailwindcss";
+
+/* `dark:` follows the app toggle, not just the OS setting. */
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
+
+/*
+ * Design tokens as Tailwind theme values, so the whole UI is plain utilities:
+ * bg-page / bg-surface / text-fg / text-body / text-muted / border-line /
+ * bg-ink text-on-ink / shadow-card / text-h1 … Colours point at the per-mode
+ * variables below, so `dark:` variants are rarely needed. `static` emits every
+ * --color-* variable, so inline styles and library variables can use them too.
+ */
+@theme {
+  /* Inter: the closest open face to Cloudflare's product type (dashboard, Kumo). */
+  --font-sans: "Inter Variable", Inter, system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+
+  --text-h1: 24px;
+  --text-h1--line-height: 32px;
+  --text-h1--letter-spacing: -0.96px;
+  --text-h1--font-weight: 600;
+  --text-h2: 20px;
+  --text-h2--line-height: 28px;
+  --text-h2--letter-spacing: -0.6px;
+  --text-h2--font-weight: 600;
+  --text-h3: 16px;
+  --text-h3--line-height: 24px;
+  --text-h3--letter-spacing: -0.32px;
+  --text-h3--font-weight: 600;
+  --text-stat: 32px;
+  --text-stat--line-height: 36px;
+  --text-stat--letter-spacing: -1.28px;
+  --text-stat--font-weight: 600;
+
+  --animate-blink: blink 1.4s ease-in-out infinite;
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+}
+
+@theme static {
+  --color-page: var(--fy-page);
+  --color-surface: var(--fy-surface);
+  --color-surface-2: var(--fy-surface-2);
+  --color-hover: var(--fy-hover);
+  --color-selected: var(--fy-selected);
+  --color-ink: var(--fy-ink);
+  --color-ink-hover: var(--fy-ink-hover);
+  --color-on-ink: var(--fy-on-ink);
+  --color-fg: var(--fy-fg);
+  --color-body: var(--fy-body);
+  --color-muted: var(--fy-muted);
+  --color-line: var(--fy-border);
+  --color-line-strong: var(--fy-border-strong);
+  --color-link: var(--fy-link);
+  --color-overlap: var(--fy-overlap);
+  --color-good: #29bc9b;
+  --color-busy: #f5a623;
+  --color-bad: #ee0000;
+  --color-info: #0070f3;
+
+  --shadow-card: var(--fy-shadow);
+  --shadow-card-hover: var(--fy-shadow-hover);
+  --shadow-modal: var(--fy-shadow-modal);
+}
+
+/*
+ * DESIGN.md (Vercel-inspired) mapped onto Kumo's theme variables, so every
+ * Kumo component picks it up. Values are resolved per mode (no light-dark())
+ * because @pierre/trees renders in a shadow root with its own color-scheme.
+ */
+:root,
+:root[data-mode="light"] {
+  color-scheme: light;
+  --fy-page: #fafafa; /* canvas-soft */
+  --fy-surface: #ffffff; /* canvas */
+  --fy-surface-2: #f5f5f5; /* canvas-soft-2 */
+  --fy-hover: #f2f2f2;
+  --fy-ink: #171717;
+  --fy-ink-hover: #383838;
+  --fy-on-ink: #ffffff;
+  --fy-fg: #171717;
+  --fy-body: #4d4d4d;
+  --fy-muted: #888888;
+  --fy-border: #ebebeb; /* hairline */
+  --fy-border-strong: #d4d4d4;
+  --fy-ring: #00000014;
+  --fy-selected: #f2f2f2;
+  --fy-link: #0070f3;
+  --fy-overlap: #ab570a; /* warning-deep: readable as text */
+  --fy-shadow: 0 0 0 1px var(--fy-ring), 0px 1px 1px #00000005, 0px 2px 2px #0000000a;
+  --fy-shadow-hover: 0 0 0 1px var(--fy-border-strong), 0px 2px 2px #0000000a, 0px 8px 8px -8px #0000000a;
+  --fy-shadow-modal: 0 0 0 1px var(--fy-ring), 0px 1px 1px #00000005, 0px 8px 16px -4px #0000000a, 0px 24px 32px -8px #0000000f;
+
+  --color-kumo-canvas: var(--fy-page);
+  --color-kumo-base: var(--fy-surface);
+  --color-kumo-elevated: var(--fy-surface);
+  --color-kumo-overlay: var(--fy-surface);
+  --color-kumo-control: var(--fy-surface);
+  --color-kumo-recessed: var(--fy-surface-2);
+  --color-kumo-tint: var(--fy-hover);
+  --color-kumo-fill: #ebebeb;
+  --color-kumo-fill-hover: #e6e6e6;
+  --color-kumo-hairline: var(--fy-border);
+  --color-kumo-line: var(--fy-border-strong);
+  --color-kumo-contrast: var(--fy-ink);
+  --color-kumo-brand: var(--fy-ink);
+  --color-kumo-brand-hover: var(--fy-ink-hover);
+  --color-kumo-focus: #0070f3;
+  --color-kumo-interact: #0070f3;
+  --color-kumo-info: #0070f3;
+  --color-kumo-info-tint: #d3e5ff;
+  --color-kumo-success: #0070f3;
+  --color-kumo-success-tint: #d3e5ff;
+  --color-kumo-danger: #ee0000;
+  --color-kumo-danger-tint: #f7d4d6;
+  --color-kumo-warning: #f5a623;
+  --color-kumo-warning-tint: #ffefcf;
+  --color-kumo-banner-info: #d3e5ff;
+  --color-kumo-banner-warning: #ffefcf;
+
+  --text-color-kumo-default: var(--fy-fg);
+  --text-color-kumo-strong: #0a0a0a;
+  --text-color-kumo-subtle: var(--fy-body);
+  --text-color-kumo-inactive: #a1a1a1;
+  --text-color-kumo-placeholder: var(--fy-muted);
+  --text-color-kumo-inverse: #ffffff;
+  --text-color-kumo-brand: var(--fy-ink);
+  --text-color-kumo-link: var(--fy-link);
+  --text-color-kumo-info: #0761d1;
+  --text-color-kumo-success: #0761d1;
+  --text-color-kumo-danger: #c50000;
+  --text-color-kumo-warning: #ab570a;
+}
+
+:root[data-mode="dark"] {
+  color-scheme: dark;
+  --fy-page: #000000;
+  --fy-surface: #0a0a0a;
+  --fy-surface-2: #111111;
+  --fy-hover: #1a1a1a;
+  --fy-ink: #ededed;
+  --fy-ink-hover: #cccccc;
+  --fy-on-ink: #0a0a0a;
+  --fy-fg: #ededed;
+  --fy-body: #a1a1a1;
+  --fy-muted: #707070;
+  --fy-border: #1f1f1f;
+  --fy-border-strong: #2e2e2e;
+  --fy-ring: #ffffff17;
+  --fy-selected: #1a1a1a;
+  --fy-link: #52a8ff;
+  --fy-overlap: #f5a623;
+  --fy-shadow: 0 0 0 1px var(--fy-ring);
+  --fy-shadow-hover: 0 0 0 1px var(--fy-border-strong);
+  --fy-shadow-modal: 0 0 0 1px var(--fy-ring), 0px 24px 32px -8px #00000099;
+
+  --color-kumo-fill: #1f1f1f;
+  --color-kumo-fill-hover: #2a2a2a;
+  --color-kumo-focus: #52a8ff;
+  --color-kumo-interact: #52a8ff;
+  --color-kumo-info: #52a8ff;
+  --color-kumo-info-tint: #0a1d33;
+  --color-kumo-success: #52a8ff;
+  --color-kumo-success-tint: #0a1d33;
+  --color-kumo-danger: #ff6166;
+  --color-kumo-danger-tint: #2a0b0d;
+  --color-kumo-warning: #f5a623;
+  --color-kumo-warning-tint: #2b1d05;
+  --color-kumo-banner-info: #0a1d33;
+  --color-kumo-banner-warning: #2b1d05;
+
+  --text-color-kumo-strong: #ffffff;
+  --text-color-kumo-inactive: #454545;
+  --text-color-kumo-inverse: #0a0a0a;
+  --text-color-kumo-info: #52a8ff;
+  --text-color-kumo-success: #52a8ff;
+  --text-color-kumo-danger: #ff6166;
+  --text-color-kumo-warning: #f5a623;
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply m-0 bg-page font-sans text-sm text-fg antialiased;
+    font-feature-settings: "liga", "calt";
+  }
+  ::selection { @apply bg-ink text-on-ink; }
+  code, kbd, pre { @apply font-mono; }
+  button:not(:disabled) { cursor: pointer; }
+}

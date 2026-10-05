@@ -1,0 +1,76 @@
+{
+  "base": "http://localhost:8787",
+  "mode": "local",
+  "files": 200,
+  "rounds": 2,
+  "results": [
+    {
+      "concurrency": 1,
+      "stats": {
+        "n": 2,
+        "p50": 2,
+        "p95": 2,
+        "p99": 2,
+        "min": 2,
+        "max": 2,
+        "mean": 2
+      },
+      "wallMs": [
+        2,
+        2
+      ],
+      "failures": 0
+    },
+    {
+      "concurrency": 5,
+      "stats": {
+        "n": 10,
+        "p50": 4,
+        "p95": 7,
+        "p99": 7,
+        "min": 2,
+        "max": 7,
+        "mean": 4.3
+      },
+      "wallMs": [
+        6,
+        7
+      ],
+      "failures": 0
+    },
+    {
+      "concurrency": 20,
+      "stats": {
+        "n": 40,
+        "p50": 10,
+        "p95": 16,
+        "p99": 21,
+        "min": 4,
+        "max": 21,
+        "mean": 10.2
+      },
+      "wallMs": [
+        21,
+        21
+      ],
+      "failures": 0
+    },
+    {
+      "concurrency": 50,
+      "stats": {
+        "n": 100,
+        "p50": 20,
+        "p95": 36,
+        "p99": 45,
+        "min": 6,
+        "max": 51,
+        "mean": 20.8
+      },
+      "wallMs": [
+        52,
+        46
+      ],
+      "failures": 0
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "name": "@forkyard/worker",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./types": "./types/api.d.ts"
+  },
+  "scripts": {
+    "dev": "wrangler dev --port 8787 --persist-to ../../.wrangler/state",
+    "deploy": "wrangler deploy --env production",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "types": "wrangler types --env-interface CloudflareEnv src/worker-configuration.d.ts",
+    "db:migrate:local": "wrangler d1 migrations apply forkyard --local --persist-to ../../.wrangler/state",
+    "db:migrate:remote": "wrangler d1 migrations apply forkyard --remote --env production",
+    "build:types": "tsc -p tsconfig.types.json"
+  },
+  "dependencies": {
+    "@better-auth/mcp": "1.7.7",
+    "@better-auth/oauth-provider": "1.7.7",
+    "@better-auth/utils": "0.4.2",
+    "@forkyard/shared": "workspace:*",
+    "@hono/mcp": "^0.3.2",
+    "@hono/zod-validator": "^0.9.1",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "better-auth": "1.7.7",
+    "diff": "^9.0.0",
+    "hono": "^4.13.0",
+    "jose": "^6.1.0",
+    "pako": "^3.0.2",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261002.1",
+    "@types/pako": "^3.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.146.0"
+  }
+}

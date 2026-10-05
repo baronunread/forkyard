@@ -1,0 +1,33 @@
+# Local GitHub and Google for `pnpm dev` (https://emulate.dev). Sign-in on
+# localhost runs the real OAuth flow against these emulators: pick a seeded
+# user on the emulator's page and you're back in Forkyard, signed in.
+# Credentials match the local vars in apps/worker/wrangler.jsonc.
+
+github:
+  users:
+    - login: ada
+      name: Ada Lovelace
+      email: ada@forkyard.dev
+    - login: linus
+      name: Linus Torvalds
+      email: linus@forkyard.dev
+  oauth_apps:
+    - client_id: forkyard-local
+      client_secret: forkyard-local-secret
+      name: Forkyard (local)
+      redirect_uris:
+        - http://localhost:5173/api/auth/callback/github
+        - http://localhost:8787/api/auth/callback/github
+
+google:
+  users:
+    - email: grace@forkyard.dev
+      name: Grace Hopper
+    - email: ada@forkyard.dev
+      name: Ada Lovelace
+  oauth_clients:
+    - client_id: forkyard-local.apps.googleusercontent.com
+      client_secret: forkyard-local-secret
+      redirect_uris:
+        - http://localhost:5173/api/auth/callback/google
+        - http://localhost:8787/api/auth/callback/google
