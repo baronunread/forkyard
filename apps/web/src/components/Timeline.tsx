@@ -29,15 +29,16 @@ export function Timeline({ events, agents, now = Date.now() }: { events: YardEve
   const [group, setGroup] = useState<string>("all");
   const byId = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   const name = (id: string | null) => (id ? (byId.get(id)?.name ?? id) : "?");
-  const shown = useMemo(
-    () =>
+  const shown = useMemo(() => {
+    const types = group === "all" ? null : new Set(GROUPS[group] ?? []);
+    return (
       events
         .filter((e) => !e.agentId || !hiddenAgents.has(e.agentId))
-        .filter((e) => group === "all" || GROUPS[group]?.includes(e.type))
+        .filter((e) => !types || types.has(e.type))
         .slice()
-        .reverse(),
-    [events, hiddenAgents, group],
-  );
+        .reverse()
+    );
+  }, [events, hiddenAgents, group]);
   const scroller = useRef<HTMLDivElement>(null);
   const rows = useVirtualizer({ count: shown.length, getScrollElement: () => scroller.current, estimateSize: () => 30, overscan: 12, getItemKey: (i) => shown[i]!.seq });
 

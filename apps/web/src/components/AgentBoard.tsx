@@ -119,11 +119,16 @@ export function AgentBoard({ detail, compare, selected, onSelect }: { detail: Ta
         </span>
       </div>
 
-      <div className={cx(GRID, "border-b border-line px-3 text-xs font-medium text-body")} role="row">
+      <div className={cx(GRID, "border-b border-line px-3 text-xs font-medium text-body")}>
         {table.getHeaderGroups()[0]!.headers.map((h) => {
           const sorted = h.column.getIsSorted();
           return (
-            <button key={h.id} onClick={h.column.getToggleSortingHandler()} className={cx("flex h-8 items-center gap-1 text-left hover:text-fg", sorted && "text-fg")} role="columnheader">
+            <button
+              key={h.id}
+              onClick={h.column.getToggleSortingHandler()}
+              aria-label={`Sort by ${h.column.id === "rank" ? "rank" : String(h.column.columnDef.header)}`}
+              className={cx("flex h-8 items-center gap-1 text-left hover:text-fg", sorted && "text-fg")}
+            >
               <table.FlexRender header={h} />
               {sorted === "asc" ? <CaretUp size={10} /> : sorted === "desc" ? <CaretDown size={10} /> : null}
             </button>
@@ -131,7 +136,7 @@ export function AgentBoard({ detail, compare, selected, onSelect }: { detail: Ta
         })}
       </div>
 
-      <div ref={scroller} className="h-[264px] overflow-y-auto" role="rowgroup">
+      <div ref={scroller} className="h-[264px] overflow-y-auto">
         <div className="relative" style={{ height: v.getTotalSize() }}>
           {v.getVirtualItems().map((vi) => {
             const r = rows[vi.index]!.original;
@@ -141,7 +146,7 @@ export function AgentBoard({ detail, compare, selected, onSelect }: { detail: Ta
               <button
                 key={r.agent.id}
                 onClick={() => onSelect(r.agent.id)}
-                aria-selected={sel}
+                aria-pressed={sel}
                 className={cx(GRID, "absolute inset-x-0 top-0 h-10 px-3 text-left text-[13px]", sel ? "bg-selected" : "hover:bg-hover")}
                 style={{ transform: `translateY(${vi.start}px)` }}
               >

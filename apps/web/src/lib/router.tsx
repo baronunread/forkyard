@@ -10,6 +10,7 @@ import { Overview } from "../pages/Overview";
 import { TaskPage } from "../pages/TaskPage";
 import { oauthInFlight } from "./auth-client";
 import { meQuery, queryClient } from "./queries";
+import { safeNext } from "./safe-next";
 import { TaskSearch } from "./search";
 import { toasts } from "./toast";
 
@@ -36,7 +37,6 @@ const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   ),
 });
 
-const safeNext = (n: string | undefined) => (n && n.startsWith("/") && !n.startsWith("//") ? n : "/");
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,

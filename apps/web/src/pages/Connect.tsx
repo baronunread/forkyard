@@ -39,9 +39,11 @@ export function Connect() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...body, oauth_query: new URL(from).search.slice(1) }),
     });
-    const data = (await res.json().catch(() => ({}))) as Redirect & { error_description?: string; message?: string };
-    if (!res.ok) throw new Error(data.error_description ?? data.message ?? `authorization failed (${res.status})`);
-    return data;
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error_description?: string; message?: string };
+      throw new Error(err.error_description ?? err.message ?? `authorization failed (${res.status})`);
+    }
+    return (await res.json()) as Redirect;
   };
   const consent = (accept: boolean, from?: string) => oauth("consent", { accept }, from);
 

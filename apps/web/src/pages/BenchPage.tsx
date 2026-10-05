@@ -128,7 +128,11 @@ function RunsTable({ runs }: { runs: BenchRuns }) {
                 const numeric = (h.column.columnDef.meta as { numeric?: boolean } | undefined)?.numeric;
                 return (
                   <th key={h.id} className={cx("px-3 py-2 text-xs font-medium text-body", numeric && "text-right")} aria-sort={sorted ? (sorted === "asc" ? "ascending" : "descending") : undefined}>
-                    <button onClick={h.column.getToggleSortingHandler()} className={cx("inline-flex items-center gap-1 hover:text-fg", sorted && "text-fg")}>
+                    <button
+                      onClick={h.column.getToggleSortingHandler()}
+                      aria-label={`Sort by ${String(h.column.columnDef.header ?? h.column.id)}`}
+                      className={cx("inline-flex items-center gap-1 hover:text-fg", sorted && "text-fg")}
+                    >
                       <table.FlexRender header={h} />
                       {sorted === "asc" ? <CaretUp size={10} /> : sorted === "desc" ? <CaretDown size={10} /> : null}
                     </button>

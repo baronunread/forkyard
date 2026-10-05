@@ -1,7 +1,7 @@
 import type { ServerMessage, YardEvent } from "@forkyard/shared";
 import { useThrottledCallback } from "@tanstack/react-pacer";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { getKey } from "./api";
 import { recordPulse } from "./pulse";
 import { taskEventsQuery } from "./queries";
@@ -15,10 +15,9 @@ export type LiveState = "connecting" | "live" | "offline";
 export function useYardLive(yardId: string | null, onEvent: (e: YardEvent) => void, onOverlap?: (m: Extract<ServerMessage, { kind: "overlap" }>) => void) {
   const [state, setState] = useState<LiveState>("connecting");
   const last = useRef<number | null>(null);
-  const handler = useRef(onEvent);
-  const overlapHandler = useRef(onOverlap);
-  handler.current = onEvent;
-  overlapHandler.current = onOverlap;
+  // Always the latest callbacks, without reconnecting when they change.
+  const handleEvent = useEffectEvent((e: YardEvent) => onEvent(e));
+  const handleOverlap = useEffectEvent((m: Extract<ServerMessage, { kind: "overlap" }>) => onOverlap?.(m));
 
   useEffect(() => {
     if (!yardId) return;
@@ -26,9 +25,11 @@ export function useYardLive(yardId: string | null, onEvent: (e: YardEvent) => vo
     let closed = false;
     let attempt = 0;
     let ping: ReturnType<typeof setInterval> | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     last.current = null;
 
     const connect = () => {
+      if (closed) return;
       setState("connecting");
       const proto = location.protocol === "https:" ? "wss" : "ws";
       const q = new URLSearchParams();
@@ -47,22 +48,23 @@ export function useYardLive(yardId: string | null, onEvent: (e: YardEvent) => vo
         if (msg.kind === "event") {
           if (last.current !== null && msg.event.seq <= last.current) return;
           last.current = msg.event.seq;
-          handler.current(msg.event);
+          handleEvent(msg.event);
         }
-        if (msg.kind === "overlap") overlapHandler.current?.(msg);
+        if (msg.kind === "overlap") handleOverlap(msg);
       };
       ws.onclose = () => {
         clearInterval(ping);
         if (closed) return;
         setState("offline");
         attempt++;
-        setTimeout(connect, Math.min(10_000, 400 * 2 ** attempt));
+        retry = setTimeout(connect, Math.min(10_000, 400 * 2 ** attempt));
       };
     };
     connect();
     return () => {
       closed = true;
       clearInterval(ping);
+      clearTimeout(retry);
       ws?.close();
     };
   }, [yardId]);

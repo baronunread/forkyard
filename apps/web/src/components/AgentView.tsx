@@ -90,8 +90,8 @@ export function AgentView({
             </ul>
             {review.comments.length > 0 && (
               <ul className="mt-3 space-y-1 text-sm">
-                {review.comments.slice(0, 8).map((c, i) => (
-                  <li key={i}>
+                {review.comments.slice(0, 8).map((c) => (
+                  <li key={`${c.path ?? ""}:${c.line ?? ""}:${c.body}`}>
                     {c.path && (
                       <span className="font-mono text-xs text-body">
                         {c.path}

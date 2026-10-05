@@ -41,6 +41,7 @@ Other scripts:
 | `pnpm bench:fork [--levels=1,5,20,50 --rounds=3]` | Fork latency at 1/5/20/50 concurrent forks, p50/p95/p99. |
 | `pnpm bench:events [--pushes=20] [--k2]` | `git push` → event on a WebSocket (what the UI sees); optional K2 spike numbers. |
 | `pnpm cleanup [--ttl=0] [--abandon-open=72]` | Delete stale forks (run before Artifacts billing starts on **October 15**). |
+| `pnpm --filter web doctor` | [React Doctor](https://react.doctor) on the UI: hooks, effects, accessibility, security. |
 | `pnpm test` / `pnpm typecheck` | Unit tests (git protocol against the real `git` CLI, overlap detection, hunk assembly) and types. |
 
 ## Deploy

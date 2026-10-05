@@ -1,5 +1,5 @@
 import { CommandPalette } from "@cloudflare/kumo";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Kbd } from "./ui";
 import { useAllCommands, type Command } from "../lib/commands";
 
@@ -14,10 +14,6 @@ export function CommandMenu({ open, setOpen }: { open: boolean; setOpen: (o: boo
   const commands = useAllCommands();
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    if (!open) setSearch("");
-  }, [open]);
-
   const groups = useMemo<Group[]>(() => {
     const q = search.trim().toLowerCase();
     const by = new Map<string, Command[]>();
@@ -30,15 +26,20 @@ export function CommandMenu({ open, setOpen }: { open: boolean; setOpen: (o: boo
     return [...by.entries()].map(([g, items]) => ({ id: g, label: g, items }));
   }, [commands, search]);
 
+  // A closed palette starts empty next time.
+  const openChange = (o: boolean) => {
+    if (!o) setSearch("");
+    setOpen(o);
+  };
   const run = (c: Command) => {
-    setOpen(false);
+    openChange(false);
     c.run();
   };
 
   return (
     <CommandPalette.Root
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={openChange}
       items={groups}
       value={search}
       onValueChange={setSearch}

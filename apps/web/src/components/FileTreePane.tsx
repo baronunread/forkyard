@@ -1,7 +1,7 @@
 import { colorByHex } from "@forkyard/shared";
 import type { GitStatusEntry } from "@pierre/trees";
 import { FileTree, useFileTree } from "@pierre/trees/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useTheme } from "../lib/theme";
 import type { AgentLike } from "./AgentChip";
 
@@ -44,10 +44,15 @@ function TreeInner({
   selected: string | null;
   onSelect: (path: string) => void;
 }) {
-  const data = useRef({ files: new Map<string, TreeFile>(), agents: new Map<string, AgentLike>() });
-  data.current = { files: new Map(files.map((f) => [f.path, f])), agents: new Map(agents.map((a) => [a.id, a])) };
+  // The tree calls back into these outside React's render; keep them current from a layout
+  // effect, which runs before the effect below hands the tree its new paths.
+  const lookup = useMemo(() => ({ files: new Map(files.map((f) => [f.path, f])), agents: new Map(agents.map((a) => [a.id, a])) }), [files, agents]);
+  const data = useRef(lookup);
   const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
+  useLayoutEffect(() => {
+    data.current = lookup;
+    onSelectRef.current = onSelect;
+  });
   const paths = useMemo(() => files.map((f) => f.path), [files]);
   const gitStatus = useMemo<GitStatusEntry[]>(
     () =>

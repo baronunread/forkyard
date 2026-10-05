@@ -8,7 +8,8 @@
     "dev": "vite --port 5173",
     "build": "pnpm --filter @forkyard/worker build:types && tsc -p tsconfig.json --noEmit && vite build",
     "typecheck": "pnpm --filter @forkyard/worker build:types && tsc -p tsconfig.json --noEmit",
-    "test": "echo 'web: no unit tests (covered by scripts/e2e.ts)'"
+    "test": "echo 'web: no unit tests (covered by scripts/e2e.ts)'",
+    "doctor": "react-doctor . --yes --no-supply-chain --verbose"
   },
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.7",
@@ -40,6 +41,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "react-doctor": "0.9.17",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.9.0",
     "vite": "^7.1.0"

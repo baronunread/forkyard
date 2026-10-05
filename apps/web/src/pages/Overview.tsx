@@ -96,6 +96,7 @@ function Rail({ yards, loading, selected, onNew }: { yards: YardList; loading: b
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Filter"
+            aria-label="Filter yards"
             className="mx-1 mb-1 h-8 w-[calc(100%-8px)] rounded-md bg-surface-2 px-2.5 text-[13px] text-fg ring-1 ring-line outline-none placeholder:text-muted focus:ring-link"
           />
         )}

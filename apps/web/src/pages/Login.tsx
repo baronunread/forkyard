@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Logo } from "../components/TopBar";
 import { Button } from "../components/ui";
 import { authClient, oauthInFlight } from "../lib/auth-client";
+import { safeNext } from "../lib/safe-next";
 
 type Provider = "github" | "google";
 
@@ -11,7 +12,11 @@ type Provider = "github" | "google";
 export function Login() {
   const info = useQuery({
     queryKey: ["providers"],
-    queryFn: async () => (await (await fetch("/api/providers")).json()) as { providers: Provider[]; emulated: boolean },
+    queryFn: async () => {
+      const res = await fetch("/api/providers");
+      if (!res.ok) throw new Error(`providers: HTTP ${res.status}`);
+      return (await res.json()) as { providers: Provider[]; emulated: boolean };
+    },
     staleTime: Infinity,
   }).data;
   const [busy, setBusy] = useState<Provider | null>(null);
@@ -27,7 +32,7 @@ export function Login() {
     // and Better Auth resumes it after the callback; otherwise come back to `next`.
     const res = await authClient.signIn.social({
       provider,
-      callbackURL: next.startsWith("/") && !next.startsWith("//") ? next : "/",
+      callbackURL: safeNext(next),
       errorCallbackURL: "/login?error=1",
     });
     if (res.error) {

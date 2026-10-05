@@ -38,7 +38,9 @@ export function DecideView({
   const qc = useQueryClient();
   const ranked = useMemo(() => [...detail.agents].filter((a) => a.headCommit).sort((a, b) => (b.review?.score ?? -1) - (a.review?.score ?? -1)), [detail.agents]);
   const [mode, setMode] = useState<"winner" | "assemble">("winner");
-  const [winner, setWinner] = useState<string | null>(ranked[0]?.id ?? null);
+  // The person's pick, else the best-reviewed fork (forks that push after this mounts count too).
+  const [chosen, setWinner] = useState<string | null>(null);
+  const winner = chosen && ranked.some((a) => a.id === chosen) ? chosen : (ranked[0]?.id ?? null);
   const [picks, setPicks] = useState<Map<string, Map<string, Pick>>>(new Map());
   const [message, setMessage] = useState(detail.task.title);
   const [confirm, setConfirm] = useState(false);
