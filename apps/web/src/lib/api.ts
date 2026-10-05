@@ -62,6 +62,8 @@ const t = y.tasks[":task"];
 
 export type Me = Res<typeof client.me.$get>;
 export type YardList = Res<typeof client.yards.$get>;
+export type Inbox = Res<typeof client.inbox.$get>;
+export type InboxAsk = Inbox["asks"][number];
 export type YardStatus = Res<typeof y.$get>;
 export type TaskDetail = Res<typeof t.$get>;
 export type TaskAgent = TaskDetail["agents"][number];

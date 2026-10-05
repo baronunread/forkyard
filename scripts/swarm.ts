@@ -142,7 +142,10 @@ async function main() {
   console.log(`Swarm → ${BASE} (Artifacts ${mode}): ${AGENTS} agents on ${TASKS} task(s), ${ROUNDS} push(es) each, ${CONCURRENCY} in flight\n`);
 
   const base = baseFiles();
-  await api("/yards", { body: { id: yardId, name: `Swarm · ${AGENTS} agents`, files: base, budgets: { maxAgentsPerTask: 10_000, maxActiveForks: 100_000 } } });
+  // A retried create (dev proxy hiccup) finds the yard already there; that's fine.
+  await api("/yards", { body: { id: yardId, name: `Swarm · ${AGENTS} agents`, files: base, budgets: { maxAgentsPerTask: 10_000, maxActiveForks: 100_000 } } }).catch((e) => {
+    if (!String(e).includes("409")) throw e;
+  });
   const live = await watchYard(yardId);
   const moduleNames = Object.keys(base).filter((p) => p.includes("/mod-"));
 

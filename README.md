@@ -1,17 +1,17 @@
 # Forkyard
 
-**An agent-native Git platform on Cloudflare.** A task fans out to several coding agents; each one gets its own [Artifacts](https://developers.cloudflare.com/artifacts/) fork, a scoped git token and the project's `AGENTS.md`. Forkyard tells agents when they are about to collide *while they work*, reviews every push, and lets a human (or a judge agent) compare the forks side by side and ship one — or assemble hunks from several.
+**An agent-native Git platform on Cloudflare.** A task fans out to several coding agents; each one gets its own [Artifacts](https://developers.cloudflare.com/artifacts/) fork, a scoped git token and the project's `AGENTS.md`. Forkyard tells agents when they are about to collide *while they work*, reviews every push, and **merges the best fork on its own** once the agents settle.
 
-Agents are the primary users: every UI action is an MCP tool and a REST route, and plain `git clone` / `git push` is all an agent needs to work. Humans watch, compare and decide.
+People are pulled in only when they're needed: an agent that is truly blocked calls `ask_human`, or no fork clears the review bar and autopilot hands the decision over. Both land in one inbox with one-click answers. Everything else is the agents' job; every UI action is also an MCP tool and a REST route, and plain `git clone` / `git push` is all an agent needs.
 
 Built for Cloudflare's [“Build the next Git platform”](https://blog.cloudflare.com/next-git-platform-on-cloudflare/) competition. MIT licensed.
 
-![Overview: every yard on the left; the selected yard's live status, tasks, agents, activity and base branch on the right](docs/screenshots/overview-light.png)
+![Everything: what needs you across all yards, with one-click answers; every yard on the left](docs/screenshots/inbox.png)
 
-| Task: agents, file tree, attributed diffs | Overview in dark mode |
+| A yard: needs you, in progress, done | Autopilot merged the best fork |
 | --- | --- |
-| ![Task view](docs/screenshots/task-dark.png) | ![Overview, dark](docs/screenshots/overview-dark.png) |
-| **A 500-agent swarm: live pulse, hot files** | **100 agents on one task: leaderboard + compare** |
+| ![Yard overview](docs/screenshots/yard.png) | ![Task merged by autopilot](docs/screenshots/task-merged.png) |
+| **300 agents at work: one line per task** | **100 agents on one task: leaderboard + compare** |
 | ![Swarm overview](docs/screenshots/swarm-overview.png) | ![Swarm task](docs/screenshots/swarm-task.png) |
 | **Compare one file across agents** | **Decide: assemble hunks, preview, apply** |
 | ![Compare mode](docs/screenshots/compare-light.png) | ![Decide mode](docs/screenshots/decide-dark.png) |
@@ -34,8 +34,9 @@ Other scripts:
 
 | Command | What it does |
 | --- | --- |
-| `pnpm seed [--pace=fast\|demo\|slow] [--no-decide] [--yard=id] [--name="…"]` | Demo story for the video: 4 agents, small commits pushed concurrently, a claim overlap, a change overlap, reviews, and an assembled decision. |
-| `pnpm e2e [--cleanup]` | Runs the seed and asserts 30 things: fan-out, overlaps, git-sourced intents, reviews, decision, MCP tool parity, permissions (agents can't decide, can't touch other tasks, fork tokens can't reach the base repo), GitHub sign-in through emulate, MCP OAuth for both kinds of seat, and cron cleanup. |
+| `pnpm seed [--pace=fast\|demo\|slow] [--no-decide] [--yard=id] [--name="…"]` | Demo story for the video: 4 agents, small commits pushed concurrently, a claim overlap, a change overlap, reviews, and an assembled decision (autopilot off: a person decides this one). |
+| `pnpm demo:inbox [--yard=billing]` | Three tasks in one yard: one that autopilot merges by itself, one where an agent asks a person which exchange rate to use, one where no fork clears the bar and autopilot hands the decision over. |
+| `pnpm e2e [--cleanup]` | Runs the seed and asserts 35 things: fan-out, overlaps, git-sourced intents, reviews, decision, MCP tool parity, permissions (agents can't decide, can't touch other tasks, fork tokens can't reach the base repo), GitHub sign-in through emulate, MCP OAuth for both kinds of seat, the inbox, autopilot holding while an agent waits on a person and merging once it's answered, and cron cleanup. |
 | `pnpm swarm [--agents=200 --tasks=4 --rounds=3 --concurrency=64]` | Hundreds or thousands of agents on one yard: each gets its own fork and pushes real commits over git smart HTTP, working lanes of the codebase with shared hot files, so collisions are real. Reports fan-out, push → visible, push → reviewed, pushes/s and overlaps. |
 | `pnpm bench:fork [--levels=1,5,20,50 --rounds=3]` | Fork latency at 1/5/20/50 concurrent forks, p50/p95/p99. |
 | `pnpm bench:events [--pushes=20] [--k2]` | `git push` → event on a WebSocket (what the UI sees); optional K2 spike numbers. |
@@ -117,6 +118,8 @@ flowchart LR
 - **Overlaps.** Claims (`claim_paths`, globs allowed) and actual changes (from each push's diff) are compared pairwise. `claim` overlaps are early warnings; `change` overlaps are files two agents both changed (or one changed inside another's claim). New overlaps are pushed to the involved agents' sockets, returned by `claim_paths`, and shown in the UI.
 - **Pushes.** Artifacts emits `cf.artifacts.repo.pushed` → Queue → Worker → Yard DO (event + head update) → **Review Workflow**: diff fork vs base straight from Artifacts objects (hash-skipping identical subtrees), publish the footprint, pick up `.forkyard/intent.md` from the commit, run checks (conflict markers, secrets, scope vs claims, overlaps, size, debug leftovers, tests), ask a Workers AI model for a review when bound, and store the score.
 - **Intents** are recorded over MCP and also travel in the fork as `.forkyard/intent.md`; the latest one is attached to the next push and shown *above* the agent's diff.
+- **Autopilot** (on by default per task). Once every agent's newest push is reviewed, nobody is waiting on a person and the task has been quiet for `AUTOPILOT_QUIET_MS` (15 s; 4 s locally), the Yard DO's alarm merges the best-scoring fork. Below `AUTOPILOT_MIN_SCORE` (60), or if the merge can't apply, it opens a `decision` ask instead, with the top forks and "abandon" as one-click answers. A person can turn autopilot off for a task and decide themselves.
+- **Asks.** `ask_human` stores a question (with optional choices) in D1 and logs `ask.opened`; the answer is logged as `ask.answered`, which reaches the agent's socket, `events_since` and `ask_status`. Open asks hold autopilot for that task. `GET /api/inbox` lists everything waiting on a person across yards.
 - **Decide.** Pick a winner, or select hunks from several forks; Forkyard previews the combined result with conflicts, then writes one commit to the base branch with a compare-and-swap ref update and `Co-authored-by` lines for the agents. The Artifacts binding has no write API, so this uses a small git smart-HTTP client (`apps/worker/src/git/`).
 - **Cleanup.** An hourly cron deletes forks (and preview branches) of decided or abandoned tasks after `FORK_TTL_HOURS`, revokes their keys, and logs `fork.deleted`. `pnpm cleanup` sweeps on demand.
 
@@ -128,7 +131,7 @@ The brief is hundreds of thousands of agents. What makes a single yard hold a th
 - **Reviews are scheduled, not fired per push.** One review per agent at a time (a push during a review is covered by the next one, at the newest head), at most `REVIEW_CONCURRENCY` per yard, the rest queued in the yard's Durable Object and drained by its alarm. The yard status shows reviews running and queued.
 - **Events are batched.** The Artifacts event queue is consumed in batches of up to 100, routed concurrently; order doesn't matter because each push reads the fork's real head.
 - **The shared log doesn't drown.** An overlap is logged when it starts and when it crosses a size milestone (5, 10, 25, 50, 100… agents); every agent that joins it is still told directly over its socket.
-- **The UI changes shape past 8 agents.** A task shows a sortable, filterable, virtualized leaderboard instead of cards; the overview adds a live pulse (pushes per minute, reviews running and queued), the files the most agents are colliding on, and capped avatar stacks; Compare and Decide show the best-reviewed versions first.
+- **The UI changes shape past 8 agents.** A task shows a sortable, filterable, virtualized leaderboard instead of cards; the yard overview stays one line per task; Compare and Decide show the best-reviewed versions first.
 
 One Durable Object per yard is the unit of coordination, so yards scale out independently; past a few thousand concurrent agents in one yard, the next step is a Durable Object per task, with the yard aggregating.
 
@@ -147,6 +150,7 @@ Add `/mcp` to any MCP client (Claude Code, Codex, Cursor, …). It is an OAuth 2
 | `events_since` | `GET /api/yards/:yard/events?since=` (+ WebSocket `/api/yards/:yard/ws`) |
 | `compare_forks` | `GET …/tasks/:task/compare` and `…/compare/file?path=` |
 | `review_get` | `GET …/agents/:agent/reviews` |
+| `ask_human` / `ask_status` | `POST …/agents/:agent/asks` / `GET /api/yards/:yard/asks/:ask` |
 | `decide_preview` / `decide` | `POST …/tasks/:task/decide/preview` / `…/decide` |
 | `task_abandon` | `POST …/tasks/:task/abandon` |
 | `bench_fork` | `POST /api/bench/fork` |
@@ -159,9 +163,10 @@ People sign in with **GitHub** or **Google** through [Better Auth](https://www.b
 
 ### For humans
 
-- **Overview** (home): every yard you belong to on the left, with open tasks, agents working and last activity; the selected yard's overview on the right: live status, open tasks / agents working / overlaps / decided, tasks, agents on open tasks, activity and the base branch. Picking a yard (or `j`/`k`) swaps the overview in place; each is a URL (`/y/<yard>`).
-- **Swarm views**: past 8 agents a task becomes a leaderboard (TanStack Table + Virtual: sort by score, changes, overlaps, status; filter by name or intent; status counts as filters). The overview shows the yard's pulse (pushes/min with a two-minute sparkline, reviews running and queued) and its hot files.
-- **Task view**: one card per fork — agent name *and* initials with a stable color (never color alone), status, intent summary, review score, files and +/−, preview link, overlap count.
+- **Everything** (home): what needs you across all yards, oldest first, each with its answers as buttons (an agent's question, or autopilot's merge / abandon options), then one line per yard. The rail lists yards with a count of what's waiting on you.
+- **Yard**: a one-line summary (tasks in progress, agents working, pushes a minute), then *Needs you*, *In progress* (one sentence per task and a progress bar of forks reviewed) and *Done* (who merged what). Nothing else: overlaps, reviews and retries are the agents' business and live one click down, on the task.
+- **Swarm views**: past 8 agents a task becomes a leaderboard (TanStack Table + Virtual: sort by score, changes, overlaps, status; filter by name or intent; status counts as filters).
+- **Task view**: one line on where it stands and who decides (autopilot, or you), or the open asks; then one card per fork — agent name *and* initials with a stable color (never color alone), status, intent summary, review score, files and +/−, preview link, overlap count.
 - **File tree** (`@pierre/trees`): the union of files touched across forks, each row with the initials of every agent that touched it and ⚠ when more than one did.
 - **Diffs** (`@pierre/diffs`): split/unified, word-level highlights, syntax highlighting, collapsed unchanged regions, files mounted lazily as you scroll. Each hunk is labeled with its agent and intent.
 - **Compare** a file across all agents, side by side against base. **Decide** by winner or hunk assembly, with a preview before applying.
@@ -169,7 +174,7 @@ People sign in with **GitHub** or **Google** through [Better Auth](https://www.b
 - **Keyboard**: ⌘K / Ctrl+K command palette, `[` `]` between agents, `1`–`9` to jump to a fork, `j` `k` between hunks (between yards on the overview), `a` `c` `l` `d` for Changes / Compare / Activity / Decide, `s` split, `w` wrap, `n` new task. Shortcuts are TanStack Hotkeys and are ignored while typing.
 - **Theme**: light / dark / system, remembered; Kumo tokens, diffs and the tree all follow the same mode.
 - **Stack**: React with **TanStack** Router (typed routes; a task's agent/file/view live in the URL), Query (all server state; the yard WebSocket appends events and invalidates, debounced with Pacer), Table (benchmarks), Form (create yard/task, validated with zod), Hotkeys (every shortcut) and Virtual (activity feed). Styling is **Tailwind** utilities on theme tokens; Kumo supplies dialogs, selects, tabs, toasts and the command palette.
-- **Design**: the look follows [`DESIGN.md`](DESIGN.md) — a Vercel-inspired system (Inter for a Cloudflare-like voice, Geist Mono for code, ink-on-near-white, hairline cards with stacked shadows, mono eyebrows). Its tokens are mapped onto Kumo's theme variables in `apps/web/src/styles.css`, so Kumo components render in that language; app-specific rules are at the end of DESIGN.md.
+- **Design**: the look follows [`DESIGN.md`](DESIGN.md) — a Vercel-inspired system (Inter for a Cloudflare-like voice, Geist Mono for code, ink-on-near-white, hairline cards with stacked shadows, sentence-case section titles). Its tokens are mapped onto Kumo's theme variables in `apps/web/src/styles.css`, so Kumo components render in that language; app-specific rules are at the end of DESIGN.md.
 
 ## Numbers
 

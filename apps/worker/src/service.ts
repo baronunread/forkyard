@@ -452,19 +452,24 @@ export async function reviewGet(env: Env, p: Principal, yardId: string, taskId: 
 // ── asks: what needs a person ─────────────────────────────────────────────
 
 /** Everything waiting on a person, across the yards the caller can see. */
-export async function inbox(env: Env, p: Principal): Promise<{ asks: (Ask & { yardName: string; taskTitle: string | null; agentName: string | null })[] }> {
+type AgentLook = Pick<Agent, "id" | "name" | "color" | "initials">;
+
+export async function inbox(
+  env: Env,
+  p: Principal,
+): Promise<{ asks: (Ask & { yardName: string; taskTitle: string | null; agentName: string | null; agent: AgentLook | null })[] }> {
   assertPerson(p);
   const yards = await yardsList(env, p);
   const asks = await openAsks(env.DB, yards.filter((y) => y.summary.needsYou > 0).map((y) => y.id));
   const tasks = new Map<string, string>();
-  const agents = new Map<string, string>();
+  const agents = new Map<string, AgentLook>();
   const keys = [...new Set(asks.filter((a) => a.taskId).map((a) => `${a.yardId}/${a.taskId}`))];
   await Promise.all(
     keys.map(async (k) => {
       const [yardId, taskId] = k.split("/") as [string, string];
       const t = await getTask(env.DB, yardId, taskId);
       if (t) tasks.set(k, t.title);
-      for (const a of await listAgents(env.DB, yardId, taskId)) agents.set(`${k}/${a.id}`, a.name);
+      for (const a of await listAgents(env.DB, yardId, taskId)) agents.set(`${k}/${a.id}`, { id: a.id, name: a.name, color: a.color, initials: a.initials });
     }),
   );
   const names = new Map(yards.map((y) => [y.id, y.name]));
@@ -473,7 +478,8 @@ export async function inbox(env: Env, p: Principal): Promise<{ asks: (Ask & { ya
       ...a,
       yardName: names.get(a.yardId) ?? a.yardId,
       taskTitle: a.taskId ? (tasks.get(`${a.yardId}/${a.taskId}`) ?? null) : null,
-      agentName: a.agentId ? (agents.get(`${a.yardId}/${a.taskId}/${a.agentId}`) ?? null) : null,
+      agentName: a.agentId ? (agents.get(`${a.yardId}/${a.taskId}/${a.agentId}`)?.name ?? null) : null,
+      agent: a.agentId ? (agents.get(`${a.yardId}/${a.taskId}/${a.agentId}`) ?? null) : null,
     })),
   };
 }
@@ -508,6 +514,7 @@ export async function askAnswer(env: Env, p: Principal, yardId: string, askId: s
   if (ask.kind === "decision" && ask.taskId && option) {
     if (option.id.startsWith("merge:")) await decide(env, p, yardId, ask.taskId, { mode: "winner", winnerAgentId: option.id.slice(6) });
     else if (option.id === "abandon") await taskAbandon(env, p, yardId, ask.taskId, "abandoned from the inbox");
+    else if (option.id === "restart") await taskRestart(env, p, yardId, ask.taskId);
     // Deciding closes the task's asks; record who chose what on this one.
     const after = await getAsk(env.DB, yardId, askId);
     if (after && after.status !== "open") {
@@ -518,6 +525,21 @@ export async function askAnswer(env: Env, p: Principal, yardId: string, askId: s
   const answer = [option?.label, input.text?.trim()].filter(Boolean).join(" — ");
   const yard = await mustYard(env, yardId);
   return yardStub(env, yard).answerAsk(askId, answer, p.label);
+}
+
+/** The same task again, from the latest base: same title, brief and agents; the old one is abandoned. */
+export async function taskRestart(env: Env, p: Principal, yardId: string, taskId: string) {
+  await assertMemberOrAdmin(env, p, yardId);
+  const task = await mustTask(env, yardId, taskId);
+  const agents = (await listAgents(env.DB, yardId, taskId)).filter((a) => a.status !== "failed");
+  const created = await taskCreate(env, p, yardId, {
+    title: task.title,
+    brief: task.brief,
+    autopilot: true,
+    agents: agents.map((a) => ({ name: a.name, harness: a.harness, role: a.role })),
+  });
+  if (task.status === "open") await taskAbandon(env, p, yardId, taskId, `restarted from the latest base as ${created.task.id}`);
+  return created;
 }
 
 export async function setAutopilot(env: Env, p: Principal, yardId: string, taskId: string, on: boolean) {

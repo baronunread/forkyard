@@ -1,5 +1,5 @@
 import { Banner, Empty, Loader, Tabs } from "@cloudflare/kumo";
-import { ArrowLeft, GitMerge, Warning } from "@phosphor-icons/react";
+import { ArrowLeft, GitMerge } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useHotkeys, type UseHotkeyDefinition } from "@tanstack/react-hotkeys";
 import { useNavigate } from "@tanstack/react-router";
@@ -10,7 +10,9 @@ import { AgentView } from "../components/AgentView";
 import { CompareView } from "../components/CompareView";
 import { DecideView } from "../components/DecideView";
 import { FileTreePane } from "../components/FileTreePane";
+import { AskCard } from "../components/AskCard";
 import { TaskStatusBadge } from "../components/Status";
+import { TaskState } from "../components/TaskState";
 import { Timeline } from "../components/Timeline";
 import { Button, Card, SectionTitle } from "../components/ui";
 import { useCommands } from "../lib/commands";
@@ -18,7 +20,6 @@ import { useYardSync } from "../lib/live";
 import { usePersistent } from "../lib/persistent";
 import { compareQuery, taskEventsQuery, taskQuery } from "../lib/queries";
 import { TASK_VIEWS, type TaskSearch } from "../lib/search";
-import { toasts } from "../lib/toast";
 
 type View = (typeof TASK_VIEWS)[number];
 
@@ -44,11 +45,8 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
     return () => clearInterval(t);
   }, []);
 
-  const live = useYardSync(yard, (e) => {
-    // On a swarm-sized task overlaps are constant; the leaderboard and hot files carry them instead.
-    if (e.type === "overlap.detected" && e.taskId === task && (detail.data?.agents.length ?? 0) <= SWARM_THRESHOLD)
-      toasts.add({ title: "Overlap", description: `${e.data.overlap.path} — ${e.data.overlap.agents.join(" & ")}`, variant: "warning" });
-  });
+  // Overlaps are the agents' to sort out; the page only reflects them, it doesn't interrupt.
+  const live = useYardSync(yard);
 
   const d = detail.data;
   const agents = useMemo(() => d?.agents ?? [], [d]);
@@ -116,8 +114,9 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
       </div>
     );
 
-  const overlaps = d.overlaps.filter((o) => o.active).length;
   const open = d.task.status === "open";
+  // The page's main action is the person's only when autopilot isn't deciding and nothing is asked below.
+  const handsOn = open && d.autopilot !== "waiting" && d.asks.length === 0;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-col gap-5 px-6 pt-6 pb-5">
@@ -126,11 +125,6 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
             <div className="flex items-center gap-3">
               <h1 className="truncate text-h1">{d.task.title}</h1>
               <TaskStatusBadge status={d.task.status} />
-              {overlaps > 0 && (
-                <span className="inline-flex items-center gap-1 text-sm text-overlap">
-                  <Warning weight="fill" /> {overlaps} overlap{overlaps > 1 ? "s" : ""}
-                </span>
-              )}
               {live !== "live" && <span className="text-xs text-body">Reconnecting…</span>}
             </div>
             {d.task.brief && <p className="mt-1 line-clamp-1 max-w-3xl text-body">{d.task.brief}</p>}
@@ -140,11 +134,20 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
               Back
             </Button>
           ) : (
-            <Button variant="primary" icon={<GitMerge />} onClick={() => setView("decide")}>
-              {open ? "Decide" : "Decision"}
+            <Button variant={handsOn ? "primary" : "secondary"} icon={<GitMerge />} onClick={() => setView("decide")}>
+              {open ? (handsOn ? "Decide" : "Decide myself") : "Decision"}
             </Button>
           )}
         </header>
+        {d.asks.length > 0 ? (
+          <div className="space-y-3">
+            {d.asks.map((a) => (
+              <AskCard key={a.id} ask={a} agent={agents.find((x) => x.id === a.agentId)} taskTitle={d.task.title} />
+            ))}
+          </div>
+        ) : (
+          <TaskState yard={yard} detail={d} />
+        )}
         {agents.length > SWARM_THRESHOLD ? (
           <AgentBoard detail={d} compare={compare.data ?? null} selected={selectedAgent?.id ?? null} onSelect={(id) => go({ agent: id, view: undefined })} />
         ) : (

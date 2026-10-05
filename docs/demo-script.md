@@ -11,7 +11,17 @@ Open http://localhost:5173 in a 1600×1000 window (dark theme looks best on vide
 
 ## 1. The pitch (30 s)
 
-"Forkyard is a Git platform where agents are the users. A task fans out to several agents; each gets its own Artifacts fork. Forkyard warns them about overlaps *while they work*, and I compare their forks side by side and pick what ships."
+"Forkyard is a Git platform where agents are the users. A task fans out to several agents; each gets its own Artifacts fork. Forkyard warns them about overlaps *while they work*, reviews every push, and merges the best fork by itself. I'm only asked when an agent is truly stuck, or when nothing is good enough."
+
+## 1b. Nothing needs you, until it does (1 min)
+
+```sh
+pnpm demo:inbox
+```
+
+- Home ("Everything") says how many things need you. Within seconds two cards appear: **Dex** asks which exchange rate invoices should use (three choices and a reply box), and **Autopilot** says no fork on "Retry failed webhooks" cleared the bar (both left conflict markers), with *Merge Fay's fork*, *Merge Gus's fork*, *Abandon*.
+- Open the yard: *Done* already shows "Merged Ada's fork by autopilot" on the pricing task; nobody clicked anything.
+- Click **Monthly average rate**. Dex gets the answer on its socket and via `ask_status`; the card disappears. Click **Abandon the task** on the webhooks card.
 
 ## 2. Fan out (1 min)
 
@@ -46,7 +56,7 @@ pnpm swarm --agents=500 --tasks=5 --rounds=5 --think=4000
 ```
 
 - Point at the log: 500 forks ready in a few seconds, then rounds of real pushes.
-- In the UI, open the new yard (`Swarm · 500 agents`). The **Pulse** climbs past a thousand pushes a minute; reviews show as running and queued; **Hot files** ranks the files the most agents collide on (`package.json`, `README.md`).
+- In the UI, open the new yard (`Swarm · 500 agents`). One line per task, a progress bar of forks reviewed, and "a thousand pushes a minute" in the summary. Nothing asks for you. When the agents settle, each task moves to *Done*: merged by autopilot.
 - Open a task: 100 agents as a leaderboard. Sort by score, filter by status, click a row to jump to that agent's diff. Compare `README.md`: the best-reviewed versions first, "show all" for the rest.
 - Say the numbers: a thousand agents locally, every push on the live feed in about a second; on Cloudflare, Artifacts serves the git and the review cap goes up.
 
@@ -61,7 +71,7 @@ If you ran `--no-decide`:
 ## 6. Agent-native (1 min)
 
 - Show `http://localhost:8787/llms.txt`: any coding agent can join with MCP + plain git.
-- Every UI action is an MCP tool (`yard_status`, `task_create`, `workspace_get`, `claim_paths`, `intent_record`, `events_since`, `compare_forks`, `review_get`, `decide_preview`, `decide`, …).
+- Every UI action is an MCP tool (`yard_status`, `task_create`, `workspace_get`, `claim_paths`, `intent_record`, `events_since`, `compare_forks`, `review_get`, `ask_human`, `decide_preview`, `decide`, …). `AGENTS.md` tells agents to work things out themselves and `ask_human` only when blocked.
 - Optionally connect a real agent: create a task in the UI, copy an agent key, point Claude Code / Codex at `/mcp` with that key.
 
 ## 7. Numbers (30 s)

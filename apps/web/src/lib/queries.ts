@@ -40,6 +40,9 @@ export const meQuery = queryOptions({
 
 export const yardsQuery = queryOptions({ queryKey: ["yards"], queryFn: () => call(client.yards.$get()) });
 
+/** Everything waiting on a person, across yards. Polled: the home page has no single yard socket. */
+export const inboxQuery = queryOptions({ queryKey: ["inbox"], queryFn: () => call(client.inbox.$get()), refetchInterval: 5_000 });
+
 export const yardQuery = (yard: string) => queryOptions({ queryKey: ["yard", yard], queryFn: () => call(yardRoute.$get({ param: { yard } })) });
 
 export const baseLogQuery = (yard: string) =>

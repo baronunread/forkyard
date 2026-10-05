@@ -82,6 +82,7 @@ export function useYardSync(yardId: string | null, onEvent?: (e: YardEvent) => v
     (yard: string) => {
       void qc.invalidateQueries({ queryKey: ["yard", yard], predicate: (q) => q.queryKey[q.queryKey.length - 1] !== "events" });
       void qc.invalidateQueries({ queryKey: ["yards"] });
+      void qc.invalidateQueries({ queryKey: ["inbox"] });
     },
     { wait: 1000, leading: true, trailing: true },
   );

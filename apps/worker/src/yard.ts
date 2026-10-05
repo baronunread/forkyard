@@ -80,6 +80,8 @@ export interface YardStatus {
   asks: Ask[];
   /** Autopilot state per task. */
   autopilot: Record<string, AutopilotState>;
+  /** How each decided task was decided. */
+  decisions: Record<string, { mode: Decision["mode"]; winnerAgentId: string | null; decidedBy: string; resultCommit: string }>;
 }
 
 export interface PushInput {
@@ -927,6 +929,9 @@ export class Yard extends DurableObject<Env> {
     const yard = await this.yard();
     const { results: taskRows } = await this.env.DB.prepare("SELECT * FROM tasks WHERE yard_id = ? ORDER BY created_at DESC").bind(yard.id).all();
     const agents = await listAgents(this.env.DB, yard.id);
+    const { results: decisionRows } = await this.env.DB.prepare("SELECT task_id, mode, winner_agent_id, decided_by, result_commit FROM decisions WHERE yard_id = ?")
+      .bind(yard.id)
+      .all<{ task_id: string; mode: Decision["mode"]; winner_agent_id: string | null; decided_by: string; result_commit: string }>();
     const tasks = taskRows.map((r) => ({
       id: String(r.id),
       yardId: yard.id,
@@ -976,6 +981,9 @@ export class Yard extends DurableObject<Env> {
       },
       pulse: this.pulse(),
       asks: await this.openAsks(),
+      decisions: Object.fromEntries(
+        decisionRows.map((d) => [d.task_id, { mode: d.mode, winnerAgentId: d.winner_agent_id, decidedBy: d.decided_by, resultCommit: d.result_commit }]),
+      ),
       autopilot: Object.fromEntries(
         this.sql.exec<{ task_id: string; state: string }>("SELECT task_id, state FROM autopilot").toArray().map((r) => [r.task_id, r.state as AutopilotState]),
       ),
@@ -1271,25 +1279,51 @@ export class Yard extends DurableObject<Env> {
         );
         continue;
       }
-      try {
-        const runnerUp = ranked[1];
-        const { decision } = await applyDecision(
-          this.env,
-          yard,
-          task,
-          {
-            mode: "winner",
-            winnerAgentId: best.agent.id,
-            message: `${task.title}\n\nAutopilot: ${best.agent.name} scored ${best.review.score}/100${runnerUp ? `, ahead of ${runnerUp.agent.name} at ${runnerUp.review.score}` : ""}.`,
-          },
-          "autopilot",
-        );
-        await this.onDecision(decision);
-      } catch (err) {
-        this.setAutopilot(taskId, "handed");
-        const why = err instanceof DecideError ? err.message : String(err);
-        await this.openAsk(taskId, null, "decision", `Autopilot couldn't merge ${best.agent.name}'s fork on “${task.title}”.`, why, options);
+      // Best first; a fork that can't apply (say the base moved under the files it changed)
+      // gives way to the next one that clears the bar.
+      const eligible = ranked.filter((x) => x.review.score >= minScore).slice(0, 5);
+      let merged = false;
+      let firstError: string | null = null;
+      for (const [i, x] of eligible.entries()) {
+        const next = eligible[i + 1] ?? ranked.find((r) => r !== x);
+        try {
+          const { decision } = await applyDecision(
+            this.env,
+            yard,
+            task,
+            {
+              mode: "winner",
+              winnerAgentId: x.agent.id,
+              message: `${task.title}\n\nAutopilot: ${x.agent.name} scored ${x.review.score}/100${next ? `, ahead of ${next.agent.name} at ${next.review.score}` : ""}.`,
+            },
+            "autopilot",
+          );
+          await this.onDecision(decision);
+          merged = true;
+          break;
+        } catch (err) {
+          if (!(err instanceof DecideError)) console.error("autopilot merge failed", err);
+          firstError ??= err instanceof DecideError ? err.message : String(err);
+        }
       }
+      if (merged) continue;
+      this.setAutopilot(taskId, "handed");
+      const baseMoved = !!firstError?.includes("base moved");
+      await this.openAsk(
+        taskId,
+        null,
+        "decision",
+        baseMoved ? `“${task.title}” is based on an old version of ${yard.defaultBranch}.` : `Autopilot couldn't merge a fork on “${task.title}”.`,
+        baseMoved
+          ? `Since these agents started, other work changed the same files on ${yard.defaultBranch}, so none of the ${eligible.length} best forks applies cleanly. Starting over gives the agents the latest base.`
+          : firstError,
+        baseMoved
+          ? [
+              { id: "restart", label: "Start over from the latest base" },
+              { id: "abandon", label: "Abandon the task" },
+            ]
+          : options,
+      );
     }
   }
 
