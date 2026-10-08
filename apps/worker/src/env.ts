@@ -1,4 +1,5 @@
 import type { LocalArtifacts } from "./artifacts/emulator";
+import type { PiAgent } from "./pi-agent";
 import type { Yard } from "./yard";
 import type { ReviewParams } from "./review";
 
@@ -22,6 +23,10 @@ export interface Env {
   // State
   DB: D1Database;
   YARD: DurableObjectNamespace<Yard>;
+  /** Workers AI model for cloud agents when the task owner hasn't connected ChatGPT. */
+  PI_AGENT_MODEL?: string;
+  /** Cloud agents: one Pi Durable harness per agent seat. */
+  PI_AGENT: DurableObjectNamespace<PiAgent>;
 
   // Events and review pipeline
   ARTIFACT_EVENTS?: Queue;

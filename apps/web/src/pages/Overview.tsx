@@ -183,7 +183,7 @@ function Everything({ yards }: { yards: YardList }) {
                 <div className="truncate font-medium">{y.name}</div>
                 <div className="mt-0.5 text-[13px] text-body">
                   {y.summary.openTasks
-                    ? `${y.summary.openTasks} ${y.summary.openTasks === 1 ? "task" : "tasks"} in progress · ${y.summary.activeAgents} agents`
+                    ? `${y.summary.openTasks} ${y.summary.openTasks === 1 ? "task" : "tasks"} in progress · ${y.summary.activeAgents} ${y.summary.activeAgents === 1 ? "agent" : "agents"}`
                     : y.summary.decidedTasks
                       ? `${y.summary.decidedTasks} shipped`
                       : "No tasks yet"}

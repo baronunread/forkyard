@@ -6,6 +6,7 @@ import { useState } from "react";
 import { yardsQuery } from "../lib/queries";
 import { useMe, useSignOut } from "../lib/session";
 import { useTheme, type ThemePref } from "../lib/theme";
+import { ChatGPTDialog } from "./ChatGPTDialog";
 import { Kbd } from "./ui";
 
 export function Logo({ size = 22 }: { size?: number }) {
@@ -49,6 +50,7 @@ export function TopBar({ onPalette }: { onPalette: () => void }) {
   const yards = useQuery(yardsQuery).data;
   const yardName = params.yard ? (yards?.find((y) => y.id === params.yard)?.name ?? params.yard) : null;
   const user = me?.user;
+  const [chatgpt, setChatgpt] = useState(false);
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 bg-surface px-6 shadow-[inset_0_-1px_0_var(--color-line)]">
       <Link to="/" className="flex items-center gap-2.5 py-1 pr-1" aria-label="Forkyard overview">
@@ -90,19 +92,21 @@ export function TopBar({ onPalette }: { onPalette: () => void }) {
               <Avatar name={user.name} url={user.image} />
             </DropdownMenu.Trigger>
             <DropdownMenu.Content sideOffset={8} className="min-w-56">
-              <DropdownMenu.Label>
+              {/* Who you are: plain text, not a menu label (labels must sit inside a group). */}
+              <div className="px-2 py-1.5 text-sm">
                 <div className="font-medium text-fg">{user.name}</div>
-                {user.email && <div className="truncate text-xs font-normal text-body">{user.email}</div>}
-              </DropdownMenu.Label>
+                {user.email && <div className="truncate text-xs text-body">{user.email}</div>}
+              </div>
               <DropdownMenu.Separator />
               <DropdownMenu.Item onClick={() => void navigate({ to: "/" })}>Overview</DropdownMenu.Item>
               <DropdownMenu.Item onClick={() => void navigate({ to: "/bench" })}>Benchmarks</DropdownMenu.Item>
+              <DropdownMenu.Item onClick={() => setChatgpt(true)}>ChatGPT for reviews…</DropdownMenu.Item>
               <DropdownMenu.LinkItem href="/llms.txt" target="_blank">
                 Agent docs
               </DropdownMenu.LinkItem>
               <DropdownMenu.Separator />
-              <DropdownMenu.Label>Theme</DropdownMenu.Label>
               <DropdownMenu.RadioGroup value={pref} onValueChange={(v) => setPref(v as ThemePref)}>
+                <DropdownMenu.Label>Theme</DropdownMenu.Label>
                 <DropdownMenu.RadioItem value="system">System</DropdownMenu.RadioItem>
                 <DropdownMenu.RadioItem value="light">Light</DropdownMenu.RadioItem>
                 <DropdownMenu.RadioItem value="dark">Dark</DropdownMenu.RadioItem>
@@ -113,6 +117,7 @@ export function TopBar({ onPalette }: { onPalette: () => void }) {
           </DropdownMenu>
         )}
       </span>
+      <ChatGPTDialog open={chatgpt} setOpen={setChatgpt} />
     </header>
   );
 }

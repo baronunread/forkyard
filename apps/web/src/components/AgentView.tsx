@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import type { Compare, TaskAgent } from "../lib/api";
 import { fileCompareQuery } from "../lib/queries";
 import { AgentChip } from "./AgentChip";
+import { CloudAgentLog } from "./CloudAgentLog";
 import { FileDiff, LazyMount, type DiffStyle } from "./DiffView";
 import { Score } from "./Status";
 import { Card } from "./ui";
@@ -41,6 +42,7 @@ export function AgentView({
   const passed = review?.checks.filter((c) => c.status === "pass") ?? [];
   return (
     <div className="space-y-4">
+      {agent.harness === "pi" && <CloudAgentLog yard={yard} task={task} agent={agent.id} />}
       <Card className="p-5" aria-label={`${agent.name}'s intent and review`}>
         <div className="flex items-center gap-2.5">
           <AgentChip agent={agent} size={24} />

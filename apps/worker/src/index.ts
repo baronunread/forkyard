@@ -14,6 +14,7 @@ import { yardStub } from "./yard";
 export { Yard } from "./yard";
 export { LocalArtifacts } from "./artifacts/emulator";
 export { ReviewWorkflow } from "./review";
+export { PiAgent } from "./pi-agent";
 
 const app = new Hono<HonoEnv>();
 
@@ -86,6 +87,7 @@ app.all("/mcp", async (c) => {
 app.get("/llms.txt", (c) => c.text(llmsTxt(new URL(c.req.url).origin)));
 app.get("/AGENTS.md", (c) => c.body(AGENTS_MD_TEMPLATE, 200, { "Content-Type": "text/markdown; charset=utf-8" }));
 app.get("/healthz", (c) => c.json({ ok: true }));
+
 
 // Local Artifacts emulator: git smart HTTP (dev only).
 app.all("/git/*", async (c) => {

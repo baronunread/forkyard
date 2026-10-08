@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   AGENTS_MD_TEMPLATE,
+  CLOUD_HARNESS,
   detectOverlaps,
   describeEvent,
   forkName,
@@ -32,6 +33,7 @@ import {
 import { disposeRepo, errorCode, getArtifacts, type Repo } from "./artifacts";
 import { agentFromRow, askFromRow, getAsk, getYard, latestIntents, latestReviews, listAgents, newId, now, sha256Hex } from "./db";
 import { applyDecision, DecideError } from "./decide";
+import { piAgentStub } from "./pi-agent";
 import { mapLimit } from "./diff";
 import { num, type Env } from "./env";
 
@@ -137,6 +139,7 @@ export class Yard extends DurableObject<Env> {
         task_id TEXT NOT NULL, agent_id TEXT NOT NULL, token TEXT NOT NULL, expires_at TEXT,
         PRIMARY KEY (task_id, agent_id)
       );
+      CREATE TABLE IF NOT EXISTS task_owners (task_id TEXT PRIMARY KEY, user_id TEXT);
       CREATE TABLE IF NOT EXISTS autopilot (task_id TEXT PRIMARY KEY, state TEXT NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS k2_samples (seq INTEGER NOT NULL, type TEXT NOT NULL, latency_ms REAL NOT NULL, observed_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS live_samples (seq INTEGER NOT NULL, latency_ms REAL NOT NULL, observed_at TEXT NOT NULL);
@@ -251,6 +254,7 @@ export class Yard extends DurableObject<Env> {
   async createTask(
     input: CreateTaskInput,
     createdBy: string,
+    ownerUserId: string | null = null,
   ): Promise<{ task: Task; agents: Agent[]; credentials: AgentCredential[] }> {
     const yard = await this.yard();
     const db = this.env.DB;
@@ -289,7 +293,7 @@ export class Yard extends DurableObject<Env> {
         yardId: yard.id,
         taskId,
         name: spec.name,
-        harness: spec.harness,
+        harness: spec.runner === "cloud" ? CLOUD_HARNESS : spec.harness,
         role: spec.role,
         color: color.hex,
         initials: initialsFor(spec.name),
@@ -328,6 +332,7 @@ export class Yard extends DurableObject<Env> {
     for (let i = 0; i < stmts.length; i += 100) await db.batch(stmts.slice(i, i + 100));
 
     this.setAutopilot(taskId, input.autopilot === false ? "off" : "waiting");
+    this.sql.exec("INSERT OR REPLACE INTO task_owners (task_id, user_id) VALUES (?, ?)", taskId, ownerUserId);
     await this.append({ type: "task.created", taskId, agentId: null, data: { task, agentIds: agents.map((a) => a.id) } });
     for (const a of agents) await this.append({ type: "agent.forking", taskId, agentId: a.id, data: { agent: a } });
 
@@ -433,6 +438,7 @@ export class Yard extends DurableObject<Env> {
       .run();
     const ready: Agent = { ...agent, status: "ready", forkRemote: remote, forkMs };
     await this.append({ type: "agent.ready", taskId: task.id, agentId: agent.id, data: { agent: ready, forkMs } });
+    if (agent.harness === CLOUD_HARNESS) this.ctx.waitUntil(this.startCloudAgent(task.id, agent.id));
     return ready;
   }
 
@@ -1131,6 +1137,28 @@ export class Yard extends DurableObject<Env> {
     await this.wakeAt(Date.now() + REVIEW_TICK_MS);
   }
 
+  // ── cloud agents (Pi Durable, one Durable Object per seat) ───────────────
+
+  private async startCloudAgent(taskId: string, agentId: string): Promise<void> {
+    const yard = await this.yard();
+    const ownerUserId = this.sql.exec<{ user_id: string | null }>("SELECT user_id FROM task_owners WHERE task_id = ?", taskId).toArray()[0]?.user_id ?? null;
+    try {
+      await piAgentStub(this.env, yard.id, taskId, agentId).start({ yardId: yard.id, taskId, agentId, ownerUserId });
+    } catch (err) {
+      await this.agentNote(taskId, agentId, "failed", `cloud agent couldn't start: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** A status change or a line of narration from an agent's runner (cloud agents report here). */
+  async agentNote(taskId: string, agentId: string, status: "failed" | null, note: string): Promise<void> {
+    const yard = await this.yard();
+    if (status)
+      await this.env.DB.prepare("UPDATE agents SET status = ? WHERE yard_id = ? AND task_id = ? AND id = ? AND status NOT IN ('retired')")
+        .bind(status, yard.id, taskId, agentId)
+        .run();
+    await this.append({ type: "agent.status", taskId, agentId, data: { status: status ?? "note", note } });
+  }
+
   // ── asks: what needs a person ─────────────────────────────────────────────
 
   async openAsk(taskId: string | null, agentId: string | null, kind: AskKind, question: string, context: string | null, options: Ask["options"]): Promise<Ask> {
@@ -1169,6 +1197,11 @@ export class Yard extends DurableObject<Env> {
     if (!ask) throw new Error(`ask ${id} not found`);
     if (res.meta.changes) await this.append({ type: "ask.answered", taskId: ask.taskId, agentId: ask.agentId, data: { ask } });
     if (ask.taskId && this.autopilotOf(ask.taskId) === "waiting") await this.wakeAt(Date.now() + this.quietMs());
+    // A cloud agent hears the answer in its conversation; local agents read it over MCP.
+    if (res.meta.changes && ask.taskId && ask.agentId && ask.kind === "question") {
+      const a = await this.env.DB.prepare("SELECT harness FROM agents WHERE yard_id = ? AND task_id = ? AND id = ?").bind(yard.id, ask.taskId, ask.agentId).first<{ harness: string }>();
+      if (a?.harness === CLOUD_HARNESS) this.ctx.waitUntil(piAgentStub(this.env, yard.id, ask.taskId, ask.agentId).deliver(ask.question, answer).catch((e) => console.warn("deliver failed", e)));
+    }
     return ask;
   }
 

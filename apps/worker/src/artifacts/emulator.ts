@@ -335,6 +335,8 @@ export class LocalArtifacts extends DurableObject<Env> {
     const err = res.get(ref);
     if (err) throw new EmulatorError("INVALID_INPUT", `${ref}: ${err}`);
     this.sql.exec("UPDATE repos SET updated_at = ?, last_push_at = ? WHERE name = ?", new Date().toISOString(), new Date().toISOString(), repo);
+    // Like a real push: Artifacts emits push events for server-side writes too (they are git pushes there).
+    this.ctx.waitUntil(this.emitPushed(repo, [{ ref, old: expectedOld ?? ZERO_HASH, new: newHash }]));
   }
 
   // ── git smart HTTP ─────────────────────────────────────────────────────────

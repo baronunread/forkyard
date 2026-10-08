@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { AuthError, authenticate, devMode, isMember, type Principal } from "./auth";
 import { ME, origin, recordSeatChoice, sessionFor } from "./better-auth";
+import * as chatgpt from "./chatgpt";
 import type { Env } from "./env";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
 import * as svc from "./service";
@@ -41,6 +42,26 @@ export const api = new Hono<HonoEnv>()
       devMode: devMode(c.env),
       artifactsMode: c.env.ARTIFACTS_MODE === "local" || !c.env.ARTIFACTS ? "local" : "remote",
     });
+  })
+
+  // ── your own model subscription (ChatGPT, through pi-ai), used for reviews in yards you own ──
+  .get("/me/models/chatgpt", async (c) => c.json(await chatgpt.status(c.env, await personOf(c.env, c.req.raw))))
+  .post("/me/models/chatgpt/device", async (c) => c.json(await chatgpt.startDeviceLogin(c.env, await personOf(c.env, c.req.raw))))
+  .post("/me/models/chatgpt/device/poll", async (c) => c.json(await chatgpt.pollDeviceLogin(c.env, await personOf(c.env, c.req.raw))))
+  .post("/me/models/chatgpt/paste", zValidator("json", z.object({ credential: z.string().min(2).max(20_000) })), async (c) => {
+    const user = await personOf(c.env, c.req.raw);
+    await chatgpt.save(c.env, user, chatgpt.parsePastedCredential(c.req.valid("json").credential));
+    return c.json(await chatgpt.status(c.env, user));
+  })
+  .put("/me/models/chatgpt", zValidator("json", z.object({ useForReviews: z.boolean() })), async (c) => {
+    const user = await personOf(c.env, c.req.raw);
+    await chatgpt.setUseForReviews(c.env, user, c.req.valid("json").useForReviews);
+    return c.json(await chatgpt.status(c.env, user));
+  })
+  .delete("/me/models/chatgpt", async (c) => {
+    const user = await personOf(c.env, c.req.raw);
+    await chatgpt.disconnect(c.env, user);
+    return c.json(await chatgpt.status(c.env, user));
   })
 
   // ── /connect: what an agent being authorized over OAuth will act as ──
@@ -199,6 +220,10 @@ export const api = new Hono<HonoEnv>()
   .get("/yards/:yard/asks/:ask", zValidator("param", z.object({ yard: z.string(), ask: z.string() })), async (c) => {
     const { yard, ask } = c.req.valid("param");
     return c.json(await svc.askGet(c.env, c.get("principal"), yard, ask));
+  })
+  .get("/yards/:yard/tasks/:task/agents/:agent/transcript", zValidator("param", agentParam), async (c) => {
+    const { yard, task, agent } = c.req.valid("param");
+    return c.json(await svc.agentTranscript(c.env, c.get("principal"), yard, task, agent));
   })
   .get("/yards/:yard/tasks/:task/agents/:agent/diff", zValidator("param", agentParam), async (c) => {
     const { yard, task, agent } = c.req.valid("param");

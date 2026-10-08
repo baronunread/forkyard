@@ -39,10 +39,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "YARD", "class_name": "Yard" },
-      { "name": "ARTIFACTS_EMULATOR", "class_name": "LocalArtifacts" }
+      { "name": "ARTIFACTS_EMULATOR", "class_name": "LocalArtifacts" },
+      { "name": "PI_AGENT", "class_name": "PiAgent" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Yard", "LocalArtifacts"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Yard", "LocalArtifacts"] },
+    { "tag": "v2", "new_sqlite_classes": ["PiAgent"] }
+  ],
   "queues": {
     "producers": [{ "binding": "ARTIFACT_EVENTS", "queue": "forkyard-artifact-events" }],
     // Small batches, short wait: a lone push is delivered within the timeout, and a swarm's
@@ -82,7 +86,8 @@
       "durable_objects": {
         "bindings": [
           { "name": "YARD", "class_name": "Yard" },
-          { "name": "ARTIFACTS_EMULATOR", "class_name": "LocalArtifacts" }
+          { "name": "ARTIFACTS_EMULATOR", "class_name": "LocalArtifacts" },
+          { "name": "PI_AGENT", "class_name": "PiAgent" }
         ]
       },
       "queues": {

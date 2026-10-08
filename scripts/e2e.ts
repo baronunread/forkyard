@@ -87,6 +87,68 @@ async function autopilotChecks() {
   } else check(d.task.status === "decided" && d.decision?.decidedBy === "autopilot", "autopilot merged the best fork once the agents settled");
 }
 
+type Browser = (path: string, init?: { method?: string; json?: unknown }) => Promise<Response>;
+
+/**
+ * A person connects their own ChatGPT for reviews in the yards they own. OpenAI isn't reachable
+ * with a made-up token, so this checks the plumbing and that reviews fall back instead of stalling.
+ */
+async function chatgptChecks(browser: Browser) {
+  const b64url = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const fake = `${b64url({ alg: "none" })}.${b64url({ exp: Math.floor(Date.now() / 1000) + 3600, "https://api.openai.com/auth": { chatgpt_account_id: "acct_e2e" }, "https://api.openai.com/profile": { email: "ada@forkyard.dev" } })}.sig`;
+  const before = (await (await browser("/api/me/models/chatgpt")).json()) as { connected: boolean };
+  check(!before.connected, "ChatGPT starts disconnected");
+  const pasted = (await (await browser("/api/me/models/chatgpt/paste", { json: { credential: JSON.stringify({ tokens: { access_token: fake, refresh_token: "r_e2e" } }) } })).json()) as {
+    connected: boolean;
+    label: string | null;
+    useForReviews: boolean;
+  };
+  check(pasted.connected && pasted.useForReviews && pasted.label === "ada@forkyard.dev", "a pasted Codex credential connects ChatGPT for reviews");
+
+  // A yard Ada owns: its reviews would use her ChatGPT; with a token OpenAI rejects, they fall back.
+  const y = `${yardId}-gpt`;
+  await browser("/api/yards", { json: { id: y, name: "ChatGPT reviews", files: { "README.md": "# hi\n" } } });
+  const t = (await (await browser(`/api/yards/${y}/tasks`, { json: { title: "Say hello", autopilot: false, agents: [{ name: "Kai", harness: "test" }] } })).json()) as {
+    task: { id: string };
+    credentials: { apiKey: string }[];
+  };
+  const ws = await new Mcp(t.credentials[0]!.apiKey).call<{ git: { remote: string; token: string } }>("workspace_get");
+  const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${y}`, ws.data.git.token, { name: "Kai", email: "kai@e" });
+  await g.write("hello.md", "hello\n");
+  await g.commitAndPush("docs: hello");
+  let review: { reviewer: string } | null = null;
+  for (let i = 0; i < 60 && !review; i++) {
+    const d = (await (await browser(`/api/yards/${y}/tasks/${t.task.id}`)).json()) as { agents: { review: { reviewer: string } | null }[] };
+    review = d.agents[0]?.review ?? null;
+    if (!review) await sleep(1000);
+  }
+  check(!!review && !review.reviewer.startsWith("chatgpt:"), `a review still lands when ChatGPT rejects the token (${review?.reviewer ?? "none"})`);
+
+  const off = (await (await browser("/api/me/models/chatgpt", { method: "PUT", json: { useForReviews: false } })).json()) as { useForReviews: boolean };
+  const gone = (await (await browser("/api/me/models/chatgpt", { method: "DELETE" })).json()) as { connected: boolean };
+  check(!off.useForReviews && !gone.connected, "ChatGPT reviews can be turned off and disconnected");
+}
+
+/** Cloud agents (Pi Durable in a Durable Object) work next to local MCP seats on the same task. */
+async function cloudAgentChecks() {
+  const t = await api<{ task: { id: string }; agents: { id: string; harness: string }[] }>(`/yards/${yardId}/tasks`, {
+    body: { title: "Cloud and local", autopilot: false, agents: [{ name: "Nimbus", runner: "cloud" }, { name: "Laptop", harness: "claude-code" }] },
+  });
+  check(t.agents.find((a) => a.id === "nimbus")?.harness === "pi" && t.agents.find((a) => a.id === "laptop")?.harness === "claude-code", "a task mixes a cloud agent and a local MCP seat");
+  const path = `/yards/${yardId}/tasks/${t.task.id}`;
+  let nimbus: { status: string; headCommit: string | null; intent: { summary: string } | null } | undefined;
+  for (let i = 0; i < 60; i++) {
+    const d = await api<{ agents: { id: string; status: string; headCommit: string | null; intent: { summary: string } | null }[] }>(path);
+    nimbus = d.agents.find((a) => a.id === "nimbus");
+    if (nimbus?.status === "reviewed") break;
+    await sleep(1000);
+  }
+  check(!!nimbus?.headCommit && !!nimbus.intent && nimbus.status === "reviewed", "the cloud agent claimed, recorded intent, pushed, and was reviewed");
+  const log = await api<{ cloud: boolean; entries: { kind: string; text: string }[] }>(`${path}/agents/nimbus/transcript`);
+  check(log.cloud && log.entries.some((e) => e.text.includes("push(")), `its Pi transcript is readable (${log.entries.length} entries)`);
+  await api(`${path}/abandon`, { body: { reason: "e2e done" } });
+}
+
 async function main() {
   console.log(`e2e → ${BASE}\n`);
   const seed = await run("npx", ["tsx", "scripts/seed.ts", "--pace=fast", `--yard=${yardId}`], { env: process.env, maxBuffer: 8 << 20 });
@@ -164,6 +226,7 @@ async function main() {
   await oauthChecks(t2.task.id);
 
   await autopilotChecks();
+  await cloudAgentChecks();
 
   await api(`/yards/${yardId}/tasks/${t2.task.id}/abandon`, { body: { reason: "e2e done" } });
 
@@ -234,6 +297,8 @@ async function oauthChecks(probeTask: string) {
   const me = (await (await browser("/api/me")).json()) as { user: { name: string; email: string } | null };
   check(me.user?.email === "ada@forkyard.dev", `signed in with GitHub as ${me.user?.name ?? "nobody"} (Better Auth session)`);
   // The seeded yard has no owner, and in dev mode such yards are visible to every signed-in person.
+
+  await chatgptChecks(browser);
 
   // 2. An agent registers itself (dynamic client registration, loopback redirect).
   const asMeta = (await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json()) as {

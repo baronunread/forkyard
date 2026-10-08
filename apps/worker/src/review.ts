@@ -10,6 +10,7 @@ import {
   type ReviewComment,
 } from "@forkyard/shared";
 import { disposeRepo, getArtifacts } from "./artifacts";
+import * as chatgpt from "./chatgpt";
 import { agentByForkName, getAgent, getTask, getYard, listIntents, newId, now } from "./db";
 import { computeHunks, forkDiff, mapLimit, readPathAt, readText } from "./diff";
 import type { Env } from "./env";
@@ -157,7 +158,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewParams | Artif
         summary: ai?.summary ?? summarizeChecks(analysis.checks, files),
         checks: analysis.checks,
         comments: [...analysis.comments, ...(ai?.comments ?? [])].slice(0, 30),
-        reviewer: ai ? `workers-ai:${ai.model} + checks` : "checks (heuristic)",
+        reviewer: ai ? `${ai.model} + checks` : "checks (heuristic)",
         createdAt: now(),
       };
       await this.env.DB.prepare(
@@ -339,10 +340,9 @@ async function aiReview(
   intent: { summary: string; why: string } | null,
   a: Analysis,
 ): Promise<{ score: number; summary: string; comments: ReviewComment[]; model: string } | null> {
-  if (!env.AI || files.length === 0) return null;
+  if (files.length === 0) return null;
   const task = await getTask(env.DB, p.yardId, p.taskId);
   const agent = await getAgent(env.DB, p.yardId, p.taskId, p.agentId);
-  const model = env.REVIEW_MODEL || "@cf/moonshotai/kimi-k2.7-code";
   const prompt = [
     `Task: ${task?.title}\n${task?.brief ?? ""}`,
     `Agent: ${agent?.name} (${agent?.harness})`,
@@ -350,20 +350,36 @@ async function aiReview(
     `Automated checks:\n${a.checks.map((c) => `- ${c.name}: ${c.status} — ${c.detail}`).join("\n")}`,
     `Diff (context-free hunks, truncated):\n${a.excerpt}`,
   ].join("\n\n");
-  const messages = [
-    {
-      role: "system",
-      content:
-        'You review one agent\'s fork for a task that several agents attempted in parallel. Judge correctness, scope discipline, and whether the change does what the task asks. Reply with JSON only: {"score": 0-100, "summary": "<= 2 sentences", "comments": [{"path": string|null, "line": number|null, "body": string}]}',
-    },
-    { role: "user", content: prompt },
-  ];
-  // Model output schemas differ across Workers AI models; accept both shapes.
-  const out = (await (env.AI.run as (m: string, i: unknown) => Promise<unknown>)(model, { messages, max_tokens: 800 })) as {
-    response?: string | object;
-    choices?: { message?: { content?: string } }[];
-  };
-  const raw = typeof out.response === "object" ? JSON.stringify(out.response) : (out.response ?? out.choices?.[0]?.message?.content ?? "");
+  const system =
+    'You review one agent\'s fork for a task that several agents attempted in parallel. Judge correctness, scope discipline, and whether the change does what the task asks. Reply with JSON only: {"score": 0-100, "summary": "<= 2 sentences", "comments": [{"path": string|null, "line": number|null, "body": string}]}';
+
+  // The yard owner's own ChatGPT subscription (through pi-ai) when they connected one; Workers AI otherwise.
+  let raw: string | null = null;
+  let model = "";
+  const owner = await chatgpt.yardReviewer(env, p.yardId);
+  if (owner) {
+    try {
+      const r = await chatgpt.complete(env, owner, system, prompt);
+      raw = r.text;
+      model = `chatgpt:${r.model}`;
+    } catch (err) {
+      console.warn("chatgpt review failed; falling back to Workers AI", err);
+    }
+  }
+  if (raw === null) {
+    if (!env.AI) return null;
+    model = `workers-ai:${env.REVIEW_MODEL || "@cf/moonshotai/kimi-k2.7-code"}`;
+    const messages = [
+      { role: "system", content: system },
+      { role: "user", content: prompt },
+    ];
+    // Model output schemas differ across Workers AI models; accept both shapes.
+    const out = (await (env.AI.run as (m: string, i: unknown) => Promise<unknown>)(model.slice("workers-ai:".length), { messages, max_tokens: 800 })) as {
+      response?: string | object;
+      choices?: { message?: { content?: string } }[];
+    };
+    raw = typeof out.response === "object" ? JSON.stringify(out.response) : (out.response ?? out.choices?.[0]?.message?.content ?? "");
+  }
   const json = /\{[\s\S]*\}/.exec(raw)?.[0];
   if (!json) return null;
   try {

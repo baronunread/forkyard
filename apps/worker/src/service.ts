@@ -1,5 +1,6 @@
 import {
   Budgets,
+  CLOUD_HARNESS,
   baseRepoName,
   type AnswerInput,
   type Ask,
@@ -40,16 +41,18 @@ import {
   now,
   openAsks,
 } from "./db";
+import { ChatGPTError } from "./chatgpt";
 import { applyDecision, DecideError, previewDecision } from "./decide";
 import { computeHunks, forkDiff, mapLimit, readPathAt } from "./diff";
 import type { Env } from "./env";
 import { buildCommit, textFile } from "./git/build";
 import { deletePreviewBranch, previewBranchSlug } from "./preview";
+import { piAgentStub } from "./pi-agent";
 import { yardStub } from "./yard";
 
 export class ServiceError extends Error {
   constructor(
-    readonly status: 400 | 401 | 403 | 404 | 409 | 429 | 500,
+    readonly status: 400 | 401 | 403 | 404 | 409 | 429 | 500 | 502,
     message: string,
   ) {
     super(message);
@@ -60,6 +63,7 @@ export function toServiceError(err: unknown): ServiceError {
   if (err instanceof ServiceError) return err;
   if (err instanceof AuthError) return new ServiceError(err.status, err.message);
   if (err instanceof DecideError) return new ServiceError(err.status, err.message);
+  if (err instanceof ChatGPTError) return new ServiceError(err.status, err.message);
   const msg = err instanceof Error ? err.message : String(err);
   if (msg.startsWith("budget:")) return new ServiceError(429, msg);
   if (/not found/i.test(msg)) return new ServiceError(404, msg);
@@ -228,7 +232,7 @@ export async function taskCreate(env: Env, p: Principal, yardId: string, input: 
   await assertMemberOrAdmin(env, p, yardId);
   const yard = await mustYard(env, yardId);
   if (input.id && (await getTask(env.DB, yardId, input.id))) throw new ServiceError(409, `task ${input.id} already exists`);
-  const res = await yardStub(env, yard).createTask(input, p.label);
+  const res = await yardStub(env, yard).createTask(input, p.label, p.kind === "user" ? p.userId : null);
   return { ...res, agents: res.agents.map((a) => ({ ...a, previewUrl: previewUrl(yard, a) })) };
 }
 
@@ -444,6 +448,15 @@ export async function compareFile(env: Env, p: Principal, yardId: string, taskId
   return { path, base: base.exists ? base.text : null, baseBinary: base.binary, versions };
 }
 
+/** What a cloud agent has done so far: its Pi transcript, compact. */
+export async function agentTranscript(env: Env, p: Principal, yardId: string, taskId: string, agentId: string) {
+  await assertTask(env, p, yardId, taskId);
+  const agent = await getAgent(env.DB, yardId, taskId, agentId);
+  if (!agent) throw new ServiceError(404, `agent ${agentId} not found`);
+  if (agent.harness !== CLOUD_HARNESS) return { cloud: false, entries: [] };
+  return { cloud: true, entries: await piAgentStub(env, yardId, taskId, agentId).transcript() };
+}
+
 export async function reviewGet(env: Env, p: Principal, yardId: string, taskId: string, agentId: string): Promise<Review[]> {
   await assertTask(env, p, yardId, taskId);
   return listReviews(env.DB, yardId, taskId, agentId);
@@ -536,7 +549,8 @@ export async function taskRestart(env: Env, p: Principal, yardId: string, taskId
     title: task.title,
     brief: task.brief,
     autopilot: true,
-    agents: agents.map((a) => ({ name: a.name, harness: a.harness, role: a.role })),
+    // A restarted cloud agent is a cloud agent again.
+    agents: agents.map((a) => ({ name: a.name, harness: a.harness, role: a.role, runner: a.harness === CLOUD_HARNESS ? ("cloud" as const) : ("mcp" as const) })),
   });
   if (task.status === "open") await taskAbandon(env, p, yardId, taskId, `restarted from the latest base as ${created.task.id}`);
   return created;

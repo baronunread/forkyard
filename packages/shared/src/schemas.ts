@@ -73,10 +73,19 @@ export const Agent = z.object({
 });
 export type Agent = z.infer<typeof Agent>;
 
+/**
+ * Where an agent runs: `mcp` is any agent you run yourself (Claude Code, Codex CLI, …) that joins
+ * over MCP; `cloud` is a Pi Durable agent Forkyard runs in a Durable Object (harness "pi").
+ */
+export const AgentRunner = z.enum(["mcp", "cloud"]);
+export type AgentRunner = z.infer<typeof AgentRunner>;
+export const CLOUD_HARNESS = "pi";
+
 export const AgentSpec = z.object({
   name: z.string().min(1).max(40),
   harness: z.string().min(1).max(60).default("unknown"),
   role: AgentRole.default("agent"),
+  runner: AgentRunner.default("mcp"),
 });
 export type AgentSpec = z.infer<typeof AgentSpec>;
 
