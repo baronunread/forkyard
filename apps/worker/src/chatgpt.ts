@@ -20,7 +20,8 @@ import type { Env } from "./env";
  */
 
 export const CHATGPT = "openai-codex";
-export const CHATGPT_REVIEW_MODEL = "gpt-5.5";
+/** The ChatGPT-plan model for cloud agents and reviews: `CHATGPT_MODEL`, else the catalog's first. */
+export const chatgptModel = (env: Env): string => env.CHATGPT_MODEL || (Object.values(OPENAI_CODEX_MODELS)[0]?.id ?? "");
 
 // The Codex CLI's public OAuth client and endpoints (the same ones pi-ai uses).
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -160,7 +161,7 @@ export async function status(env: Env, userId: string): Promise<ChatGPTStatus> {
     connected: !!row,
     label: row?.label ?? null,
     useForReviews: !!row?.use_for_reviews,
-    model: CHATGPT_REVIEW_MODEL,
+    model: chatgptModel(env),
     pending: pending ? { userCode: pending.user_code, verificationUri: DEVICE_VERIFICATION_URI, intervalSeconds: pending.interval_s, expiresAt: pending.expires_at } : null,
   };
 }
@@ -345,7 +346,7 @@ export async function complete(env: Env, userId: string, system: string, prompt:
   const credentials = oneCredential(cred);
   const models = createModels({ credentials });
   models.setProvider(codexProviderSync());
-  const model = models.getModel(CHATGPT, CHATGPT_REVIEW_MODEL) ?? models.getModels(CHATGPT)[0];
+  const model = models.getModel(CHATGPT, chatgptModel(env)) ?? models.getModels(CHATGPT)[0];
   if (!model) throw new ChatGPTError("pi-ai has no ChatGPT models");
   const context: Context = { systemPrompt: system, messages: [{ role: "user", content: prompt, timestamp: Date.now() }] };
   // SSE, not pi-ai's default WebSocket: Workers can't open an outbound WebSocket with custom headers.

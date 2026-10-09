@@ -1,3 +1,4 @@
+import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -117,9 +118,11 @@ describe("ChatGPT sign-in for reviews", () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = o.f; // pi-ai uses the global fetch
     try {
-      const r = await chatgpt.complete(env, "u1", "You review forks.", "Review this diff.", o.f);
+      // The configured model is the one used, not the catalog's first.
+      const picked = Object.values(OPENAI_CODEX_MODELS).at(-1)!.id;
+      const r = await chatgpt.complete({ ...env, CHATGPT_MODEL: picked }, "u1", "You review forks.", "Review this diff.", o.f);
       expect(JSON.parse(r.text)).toMatchObject({ score: 82 });
-      expect(r.model).toBe("gpt-5.5");
+      expect(r.model).toBe(picked);
     } finally {
       globalThis.fetch = realFetch;
     }
