@@ -340,6 +340,10 @@ async function main() {
   const gone = await api<{ repos: number }>(`/yards/${yardId}`, { method: "DELETE" });
   check(gone.repos > 1, `deleting the yard removes its base repo and ${gone.repos - 1} forks`);
   await expectStatus(api(`/yards/${yardId}`), 404, "a deleted yard is gone");
+  await api("/yards", { body: { id: yardId, name: "Again", files: { "README.md": "# again\n" } } });
+  const again = await api<{ tasks: unknown[] }>(`/yards/${yardId}`);
+  check(again.tasks.length === 0, "a yard created again under a deleted name starts clean");
+  await api(`/yards/${yardId}`, { method: "DELETE" });
 
   console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
   process.exit(failures ? 1 : 0);

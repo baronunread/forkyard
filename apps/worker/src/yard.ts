@@ -109,6 +109,10 @@ export class Yard extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
+    this.migrate();
+  }
+
+  private migrate(): void {
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events (
@@ -988,6 +992,11 @@ export class Yard extends DurableObject<Env> {
     for (const ws of this.ctx.getWebSockets()) ws.close(1001, "yard deleted");
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
+    // The object lives on: a yard created again under the same name starts from a clean slate.
+    this.yardCache = null;
+    this.forks.clear();
+    this.reservedTaskIds.clear();
+    this.migrate();
   }
 
   async abandon(taskId: string, reason: string): Promise<void> {
