@@ -68,12 +68,9 @@ export const api = new Hono<HonoEnv>()
     });
   })
   // Is this yard name free? (The create call checks again.)
-  .get("/yard-names/:id", zValidator("query", z.object({ name: z.string().max(80).default("") })), async (c) => {
-    assertPerson(c.get("principal"));
-    const parsed = Slug.safeParse(c.req.param("id"));
-    if (!parsed.success) return c.json({ available: false as const, reason: "invalid" as const });
-    return c.json(await svc.yardNameCheck(c.env, c.get("principal"), parsed.data, c.req.valid("query").name));
-  })
+  .get("/yard-names", zValidator("query", z.object({ name: z.string().max(80).default("") })), async (c) =>
+    c.json(await svc.yardNameCheck(c.env, c.get("principal"), origin(c.env, c.req.raw), c.req.valid("query").name)),
+  )
   .get("/me/limits", async (c) => c.json(await limitsReport(c.env, c.get("principal"))))
 
   // ── your own model subscription (ChatGPT, through pi-ai), used for reviews in yards you own ──
@@ -110,7 +107,7 @@ export const api = new Hono<HonoEnv>()
   // ── yards ──
   .get("/inbox", async (c) => c.json(await svc.inbox(c.env, c.get("principal"))))
   .get("/yards", async (c) => c.json(await svc.yardsList(c.env, c.get("principal"))))
-  .post("/yards", zValidator("json", CreateYardInput), async (c) => c.json(await svc.yardCreate(c.env, c.get("principal"), c.req.valid("json")), 201))
+  .post("/yards", zValidator("json", CreateYardInput), async (c) => c.json(await svc.yardCreate(c.env, c.get("principal"), c.req.valid("json"), origin(c.env, c.req.raw)), 201))
   .get("/yards/:yard", zValidator("param", yardParam), async (c) => c.json(await svc.yardStatus(c.env, c.get("principal"), c.req.valid("param").yard)))
   .delete("/yards/:yard", zValidator("param", yardParam), async (c) => c.json(await svc.yardDelete(c.env, c.get("principal"), c.req.valid("param").yard)))
   .get("/yards/:yard/base", zValidator("param", yardParam), async (c) =>

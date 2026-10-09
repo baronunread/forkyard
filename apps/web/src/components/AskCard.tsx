@@ -8,6 +8,7 @@ import { ago } from "../lib/format";
 import { toastError } from "../lib/toast";
 import { AgentBadge, type AgentLike } from "./AgentChip";
 import { Button, Card } from "./ui";
+import { yardParams } from "../lib/queries";
 
 /**
  * One thing that needs a person: an agent's question, or a decision autopilot
@@ -42,7 +43,7 @@ export function AskCard({ ask, agent, taskTitle, yardName }: { ask: Ask; agent?:
         {ask.taskId && (
           <>
             <span className="text-muted">on</span>
-            <Link to="/y/$yard/t/$task" params={{ yard: ask.yardId, task: ask.taskId }} className="truncate hover:text-fg hover:underline">
+            <Link to="/$owner/$yard/t/$task" params={{ ...yardParams(ask.yardId), task: ask.taskId }} className="truncate hover:text-fg hover:underline">
               {taskTitle ?? ask.taskId}
             </Link>
           </>
@@ -66,7 +67,7 @@ export function AskCard({ ask, agent, taskTitle, yardName }: { ask: Ask; agent?:
           </Button>
         ))}
         {decision && ask.taskId && (
-          <Link to="/y/$yard/t/$task" params={{ yard: ask.yardId, task: ask.taskId }} search={{ view: "decide" }} className="px-2 text-sm text-body hover:text-fg">
+          <Link to="/$owner/$yard/t/$task" params={{ ...yardParams(ask.yardId), task: ask.taskId }} search={{ view: "decide" }} className="px-2 text-sm text-body hover:text-fg">
             Compare forks
           </Link>
         )}

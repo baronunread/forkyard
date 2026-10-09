@@ -8,6 +8,7 @@ import { ago } from "../lib/format";
 import { toastError, toasts } from "../lib/toast";
 import { Markdown } from "./Markdown";
 import { Button, Card, cx, SectionTitle } from "./ui";
+import { yardParams } from "../lib/queries";
 
 /**
  * The yard's backlog (issue #15): tasks that haven't started. GitHub issues come in here once;
@@ -94,7 +95,7 @@ function ItemDialog({ yard, id, close }: { yard: string; id: string | null; clos
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ["yard", yard] });
       close();
-      void navigate({ to: "/y/$yard/t/$task", params: { yard, task: r.task.id } });
+      void navigate({ to: "/$owner/$yard/t/$task", params: { ...yardParams(yard), task: r.task.id } });
     },
     onError: (e) => toastError(e, "Could not start"),
   });
@@ -148,7 +149,7 @@ function ItemDialog({ yard, id, close }: { yard: string; id: string | null; clos
                 </>
               ) : (
                 d.taskId && (
-                  <Button onClick={() => (close(), void navigate({ to: "/y/$yard/t/$task", params: { yard, task: d.taskId! } }))}>
+                  <Button onClick={() => (close(), void navigate({ to: "/$owner/$yard/t/$task", params: { ...yardParams(yard), task: d.taskId! } }))}>
                     {d.status === "done" ? "Done: open the task" : "Open the task"}
                   </Button>
                 )

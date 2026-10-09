@@ -69,7 +69,7 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
   server.registerTool(
     "yard_create",
     { description: desc.yard_create, inputSchema: CreateYardInput },
-    wrap(async (a) => ok(await svc.yardCreate(env, p, a))),
+    wrap(async (a) => ok(await svc.yardCreate(env, p, a, origin))),
   );
 
   server.registerTool(

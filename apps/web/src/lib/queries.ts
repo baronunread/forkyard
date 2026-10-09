@@ -40,6 +40,15 @@ export const meQuery = queryOptions({
 
 export const yardsQuery = queryOptions({ queryKey: ["yards"], queryFn: () => call(client.yards.$get()) });
 
+/**
+ * Route params for a yard id: its /owner/slug. A yard not in the list yet goes through /y/<id>,
+ * which redirects once the list has it.
+ */
+export function yardParams(id: string): { owner: string; yard: string } {
+  const y = queryClient.getQueryData(yardsQuery.queryKey)?.find((y) => y.id === id);
+  return y ? { owner: y.owner, yard: y.slug } : { owner: "y", yard: id };
+}
+
 /** Everything waiting on a person, across yards. Polled: the home page has no single yard socket. */
 export const inboxQuery = queryOptions({ queryKey: ["inbox"], queryFn: () => call(client.inbox.$get()), refetchInterval: 5_000 });
 

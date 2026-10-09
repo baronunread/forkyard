@@ -18,7 +18,7 @@ import { Button, Card, SectionTitle } from "../components/ui";
 import { useCommands } from "../lib/commands";
 import { useYardSync } from "../lib/live";
 import { usePersistent } from "../lib/persistent";
-import { compareQuery, taskEventsQuery, taskQuery } from "../lib/queries";
+import { compareQuery, taskEventsQuery, taskQuery, yardParams } from "../lib/queries";
 import { TASK_VIEWS, type TaskSearch } from "../lib/search";
 
 type View = (typeof TASK_VIEWS)[number];
@@ -57,7 +57,7 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
 
   /** Everything about where you are on this page lives in the URL (?agent=&file=&view=). */
   const go = (patch: Partial<TaskSearch>) =>
-    void navigate({ to: "/y/$yard/t/$task", params: { yard, task }, search: (s: TaskSearch) => ({ ...s, ...patch }), replace: true });
+    void navigate({ to: "/$owner/$yard/t/$task", params: { ...yardParams(yard), task }, search: (s: TaskSearch) => ({ ...s, ...patch }), replace: true });
   const setView = (v: View) => go({ view: v === "changes" ? undefined : v });
 
   // Keyboard: [ ] agents, 1-9 forks, j/k hunks, a/c/l/d views, s split, w wrap.

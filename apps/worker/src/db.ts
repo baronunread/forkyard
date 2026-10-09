@@ -9,6 +9,8 @@ export function yardFromRow(r: Row): Yard {
   return {
     id: String(r.id),
     name: String(r.name),
+    owner: String(r.owner),
+    slug: String(r.slug ?? r.id),
     baseRepo: String(r.base_repo),
     defaultBranch: String(r.default_branch),
     jurisdiction: r.jurisdiction === "eu" ? "eu" : "default",

@@ -107,7 +107,10 @@ async function chatgptChecks(browser: Browser) {
 
   // A yard Ada owns: its reviews would use her ChatGPT; with a token OpenAI rejects, they fall back.
   const y = `${yardId}-gpt`;
-  await browser("/api/yards", { json: { id: y, name: `ChatGPT reviews ${y}`, files: { "README.md": "# hi\n" } } });
+  const made = (await (await browser("/api/yards", { json: { id: y, name: `ChatGPT reviews ${y}`, files: { "README.md": "# hi\n" } } })).json()) as { owner: string; slug: string };
+  check(made.owner !== "forkyard" && made.slug === y, `a person's yard lives at /${made.owner}/${made.slug}`);
+  const name = (await (await browser(`/api/yard-names?name=${y}`)).json()) as { available: boolean; yard: string | null; suggestion: string | null };
+  check(!name.available && name.yard === y && name.suggestion === `${y} 2`, "the name check finds it and suggests the next free name");
   const t = (await (await browser(`/api/yards/${y}/tasks`, { json: { title: "Say hello", autopilot: false, agents: [{ name: "Kai", harness: "test" }] } })).json()) as {
     task: { id: string };
     credentials: { apiKey: string }[];

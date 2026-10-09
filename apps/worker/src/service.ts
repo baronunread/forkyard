@@ -21,7 +21,10 @@ import {
   type Intent,
   type Task,
   type Yard,
+  Slug,
+  yardSlug,
 } from "@forkyard/shared";
+import { handleOf } from "./better-auth";
 import { disposeRepo, errorCode, getArtifacts } from "./artifacts";
 import { actingAgent, assertAdmin, assertCanDecide, assertMemberOrAdmin, assertPerson, assertTask, assertYard, AuthError, isMember, type Principal } from "./auth";
 import {
@@ -149,42 +152,45 @@ export async function yardsList(env: Env, p: Principal): Promise<(Yard & { summa
   });
 }
 
-/** Why a yard can't take this address or name ("address" / "name"), or null when both are free. */
-export async function yardNameTaken(env: Env, id: string, name: string): Promise<"address" | "name" | null> {
-  return (await yardNameOwner(env, id, name))?.reason ?? null;
-}
+/** Who owns a new yard: the person's handle, or "forkyard" for the operator's scripts. */
+const ownerOf = (env: Env, p: Principal, origin: string) => (p.kind === "user" ? handleOf(env, origin, p.userId) : Promise.resolve("forkyard"));
 
-async function yardNameOwner(env: Env, id: string, name: string) {
-  const r = await env.DB.prepare("SELECT id, id = ? AS same_id FROM yards WHERE id = ? OR lower(name) = lower(?) LIMIT 1").bind(id, id, name.trim()).first<{ id: string; same_id: number }>();
-  return r ? { yard: r.id, reason: r.same_id ? ("address" as const) : ("name" as const) } : null;
-}
+const ownerYard = (env: Env, owner: string, slug: string) =>
+  env.DB.prepare("SELECT id FROM yards WHERE owner = ? AND slug = ?").bind(owner, slug).first<{ id: string }>();
 
 /**
- * The name check behind "New yard": whether it's free, and when it isn't, whether the yard is
- * the caller's own (so the dialog can link to it) and the first free "Name 2".."Name 9".
+ * The name check behind "New yard": where the yard would live (owner/slug), and when that's
+ * taken, the yard that has it and the first free "Name 2".."Name 9".
  */
-export async function yardNameCheck(env: Env, p: Principal, id: string, name: string) {
-  const hit = await yardNameOwner(env, id, name);
-  if (!hit) return { available: true as const };
-  const mine = p.kind === "user" && !!(await env.DB.prepare("SELECT 1 FROM yard_members WHERE yard_id = ? AND user_id = ?").bind(hit.yard, p.userId).first());
+export async function yardNameCheck(env: Env, p: Principal, origin: string, name: string) {
+  assertPerson(p);
+  const owner = await ownerOf(env, p, origin);
+  const slug = yardSlug(name);
+  if (!Slug.safeParse(slug).success) return { available: false, owner, slug, yard: null as string | null, suggestion: null as string | null };
+  const hit = await ownerYard(env, owner, slug);
+  if (!hit) return { available: true, owner, slug, yard: null, suggestion: null };
   let suggestion: string | null = null;
-  for (let n = 2; n <= 9 && !suggestion; n++) {
-    const next = `${name.trim() || id} ${n}`;
-    if (!(await yardNameOwner(env, `${id.slice(0, 37)}-${n}`, next))) suggestion = next;
-  }
-  return { available: false as const, reason: hit.reason, yard: hit.yard, mine, suggestion };
+  for (let n = 2; n <= 9 && !suggestion; n++) if (!(await ownerYard(env, owner, yardSlug(`${name} ${n}`)))) suggestion = `${name.trim()} ${n}`;
+  return { available: false, owner, slug, yard: hit.id, suggestion };
 }
 
-export async function yardCreate(env: Env, p: Principal, input: CreateYardInput): Promise<Yard> {
+export async function yardCreate(env: Env, p: Principal, input: CreateYardInput, origin: string): Promise<Yard> {
   assertPerson(p);
   await assertCanCreateYard(env, p);
-  // Names are unique for people; scripts (admin) may reuse a demo name with a new address.
-  const taken = await yardNameTaken(env, input.id, p.kind === "user" ? (input.name ?? input.id) : "");
-  if (taken) throw new ServiceError(409, taken === "address" ? `yard ${input.id} already exists` : `a yard called "${input.name}" already exists`);
+  const slug = input.id ?? yardSlug(input.name ?? "");
+  if (!Slug.safeParse(slug).success) throw new ServiceError(400, "a yard's name needs at least two letters or digits");
+  const owner = await ownerOf(env, p, origin);
+  if (await ownerYard(env, owner, slug)) throw new ServiceError(409, `${owner}/${slug} already exists`);
+  // The id names the repos and the Durable Object, so it's global: the slug when free, else slug-xxxxx.
+  // Scripts (the operator) pick their id and get a 409 when it's taken.
+  const free = !(await getYard(env.DB, slug));
+  if (!free && p.kind !== "user") throw new ServiceError(409, `yard ${slug} already exists`);
+  input = { ...input, id: free ? slug : `${slug.slice(0, 34).replace(/-+$/, "")}-${crypto.randomUUID().slice(0, 5)}` };
   const artifacts = getArtifacts(env, input.jurisdiction);
-  const name = baseRepoName(input.id);
+  const id = input.id!;
+  const name = baseRepoName(id);
   if (input.importUrl) {
-    await artifacts.import({ source: { url: input.importUrl, depth: 50 }, target: { name, opts: { description: `Forkyard base for ${input.id}` } } });
+    await artifacts.import({ source: { url: input.importUrl, depth: 50 }, target: { name, opts: { description: `Forkyard base for ${id}` } } });
     // Imports finish asynchronously; wait until the repo answers.
     for (let i = 0; ; i++) {
       try {
@@ -196,8 +202,8 @@ export async function yardCreate(env: Env, p: Principal, input: CreateYardInput)
       }
     }
   } else {
-    await artifacts.create(name, { description: `Forkyard base for ${input.id}`, setDefaultBranch: "main" });
-    const files = input.files ?? { "README.md": `# ${input.name ?? input.id}\n\nCreated by Forkyard.\n` };
+    await artifacts.create(name, { description: `Forkyard base for ${id}`, setDefaultBranch: "main" });
+    const files = input.files ?? { "README.md": `# ${input.name ?? id}\n\nCreated by Forkyard.\n` };
     const built = await buildCommit({
       reader: { readTree: async () => null },
       baseTree: null,
@@ -216,8 +222,10 @@ export async function yardCreate(env: Env, p: Principal, input: CreateYardInput)
     disposeRepo(repo);
   }
   const yard: Yard = {
-    id: input.id,
-    name: input.name ?? input.id,
+    id,
+    name: input.name ?? id,
+    owner,
+    slug,
     baseRepo: name,
     defaultBranch,
     jurisdiction: input.jurisdiction,
@@ -226,9 +234,9 @@ export async function yardCreate(env: Env, p: Principal, input: CreateYardInput)
     createdAt: now(),
   };
   await env.DB.prepare(
-    "INSERT INTO yards (id, name, base_repo, default_branch, jurisdiction, preview_url_template, budgets, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO yards (id, name, owner, slug, base_repo, default_branch, jurisdiction, preview_url_template, budgets, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   )
-    .bind(yard.id, yard.name, yard.baseRepo, yard.defaultBranch, yard.jurisdiction, yard.previewUrlTemplate, JSON.stringify(yard.budgets), yard.createdAt)
+    .bind(yard.id, yard.name, yard.owner, yard.slug, yard.baseRepo, yard.defaultBranch, yard.jurisdiction, yard.previewUrlTemplate, JSON.stringify(yard.budgets), yard.createdAt)
     .run();
   if (p.kind === "user")
     await env.DB.prepare("INSERT INTO yard_members (yard_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(yard.id, p.userId, now()).run();

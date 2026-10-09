@@ -12,6 +12,18 @@ export const Slug = z
   .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, "lowercase letters, digits and single dashes")
   .refine((s) => !s.includes("--"), "double dashes are reserved as the fork-name separator");
 
+/** A yard's slug from its name: "My Project!" → "my-project". */
+export function yardSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "");
+}
+
 export const Jurisdiction = z.enum(["default", "eu"]);
 export type Jurisdiction = z.infer<typeof Jurisdiction>;
 
@@ -23,8 +35,12 @@ export const Budgets = z.object({
 export type Budgets = z.infer<typeof Budgets>;
 
 export const Yard = z.object({
+  /** Internal and stable: repo names, Durable Object, API paths. People see owner/slug. */
   id: Slug,
   name: z.string(),
+  /** The owner's handle and the yard's slug: the yard lives at /owner/slug. */
+  owner: z.string(),
+  slug: z.string(),
   baseRepo: z.string(),
   defaultBranch: z.string(),
   jurisdiction: Jurisdiction,
@@ -276,7 +292,8 @@ export const Workspace = z.object({
 export type Workspace = z.infer<typeof Workspace>;
 
 export const CreateYardInput = z.object({
-  id: Slug,
+  /** The slug; from `name` when left out. */
+  id: Slug.optional(),
   name: z.string().min(1).max(80).optional(),
   /** Seed the base repo from a public https git URL (Artifacts import). */
   importUrl: z.string().url().optional(),

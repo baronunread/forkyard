@@ -48,7 +48,7 @@ export function TopBar({ onPalette }: { onPalette: () => void }) {
   const params = useParams({ strict: false });
   const onBench = useMatchRoute()({ to: "/bench" });
   const yards = useQuery(yardsQuery).data;
-  const yardName = params.yard ? (yards?.find((y) => y.id === params.yard)?.name ?? params.yard) : null;
+  const yardName = params.yard ? (yards?.find((y) => y.owner === params.owner && y.slug === params.yard)?.name ?? params.yard) : null;
   const user = me?.user;
   const [chatgpt, setChatgpt] = useState(false);
   return (
@@ -61,7 +61,7 @@ export function TopBar({ onPalette }: { onPalette: () => void }) {
         {params.yard && (
           <span className="flex min-w-0 items-center gap-1">
             <Slash />
-            <Link to="/y/$yard" params={{ yard: params.yard }} className={`${crumb} ${params.task ? "text-body" : "font-medium text-fg"}`}>
+            <Link to="/$owner/$yard" params={{ owner: params.owner!, yard: params.yard }} className={`${crumb} ${params.task ? "text-body" : "font-medium text-fg"}`}>
               {yardName}
             </Link>
           </span>
@@ -69,7 +69,7 @@ export function TopBar({ onPalette }: { onPalette: () => void }) {
         {params.yard && params.task && (
           <span className="flex min-w-0 items-center gap-1">
             <Slash />
-            <Link to="/y/$yard/t/$task" params={{ yard: params.yard, task: params.task }} className={`${crumb} font-medium text-fg`}>
+            <Link to="/$owner/$yard/t/$task" params={{ owner: params.owner!, yard: params.yard, task: params.task }} className={`${crumb} font-medium text-fg`}>
               {params.task}
             </Link>
           </span>

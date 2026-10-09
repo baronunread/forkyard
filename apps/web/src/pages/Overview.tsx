@@ -13,7 +13,7 @@ import { useCommands } from "../lib/commands";
 import { ago } from "../lib/format";
 import { useYardSync } from "../lib/live";
 import { taskPhase, type Tone } from "../lib/phase";
-import { inboxQuery, yardQuery, yardsQuery } from "../lib/queries";
+import { inboxQuery, yardQuery, yardsQuery, yardParams } from "../lib/queries";
 
 /**
  * Home. Agents do the work and autopilot merges it; this page answers two
@@ -32,7 +32,7 @@ export function Overview({ yard }: { yard: string | null }) {
   const step = (d: 1 | -1) => {
     const i = stops.indexOf(yard);
     const next = stops[(i + d + stops.length) % stops.length] ?? null;
-    void navigate(next ? { to: "/y/$yard", params: { yard: next } } : { to: "/" });
+    void navigate(next ? { to: "/$owner/$yard", params: yardParams(next) } : { to: "/" });
   };
   useHotkeys([
     { hotkey: "J", callback: () => step(1) },
@@ -42,7 +42,7 @@ export function Overview({ yard }: { yard: string | null }) {
     "overview",
     [
       { id: "new-yard", group: "Actions", title: "New yard", run: () => setNewYard(true) },
-      ...list.map((y) => ({ id: `yard-${y.id}`, group: "Yards", title: y.name, run: () => void navigate({ to: "/y/$yard", params: { yard: y.id } }) })),
+      ...list.map((y) => ({ id: `yard-${y.id}`, group: "Yards", title: y.name, run: () => void navigate({ to: "/$owner/$yard", params: yardParams(y.id) }) })),
     ],
     [list],
   );
@@ -136,7 +136,7 @@ function RailItem({ to, on, label, icon, count, busy }: { to: string | null; on:
     </>
   );
   return to ? (
-    <Link to="/y/$yard" params={{ yard: to }} aria-current={on ? "page" : undefined} className={cls}>
+    <Link to="/$owner/$yard" params={yardParams(to)} aria-current={on ? "page" : undefined} className={cls}>
       {body}
     </Link>
   ) : (
@@ -179,7 +179,7 @@ function Everything({ yards }: { yards: YardList }) {
       <Section title="Yards">
         <Card className="divide-y divide-line overflow-hidden">
           {yards.map((y) => (
-            <Link key={y.id} to="/y/$yard" params={{ yard: y.id }} className="flex items-center gap-4 px-5 py-4 hover:bg-hover">
+            <Link key={y.id} to="/$owner/$yard" params={yardParams(y.id)} className="flex items-center gap-4 px-5 py-4 hover:bg-hover">
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium">{y.name}</div>
                 <div className="mt-0.5 text-[13px] text-body">
@@ -226,7 +226,7 @@ function YardOverview({ yard }: { yard: string }) {
         id: `task-${t.id}`,
         group: "Tasks",
         title: t.title,
-        run: () => void navigate({ to: "/y/$yard/t/$task", params: { yard, task: t.id } }),
+        run: () => void navigate({ to: "/$owner/$yard/t/$task", params: { ...yardParams(yard), task: t.id } }),
       })),
     ],
     [status.data],
@@ -352,7 +352,7 @@ function TaskRow({ yard, task, status, now }: { yard: string; task: YardStatus["
   const phase = taskPhase(task, agents, status.autopilot[task.id], needs, status.decisions[task.id], name);
   const open = task.status === "open";
   return (
-    <Link to="/y/$yard/t/$task" params={{ yard, task: task.id }} className="flex items-center gap-5 px-5 py-4 hover:bg-hover">
+    <Link to="/$owner/$yard/t/$task" params={{ ...yardParams(yard), task: task.id }} className="flex items-center gap-5 px-5 py-4 hover:bg-hover">
       <div className="min-w-0 flex-1">
         <div className={cx("truncate font-medium", !open && "text-body")}>{task.title}</div>
         <div className={cx("mt-1 flex items-center gap-2 text-[13px]", phase.tone === "attention" ? "font-medium text-overlap" : "text-body")}>

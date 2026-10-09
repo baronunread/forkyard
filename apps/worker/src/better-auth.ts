@@ -3,6 +3,7 @@ import { getOAuthProviderState } from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
 import { jwt } from "better-auth/plugins";
 import { createLocalJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { yardSlug } from "@forkyard/shared";
 import { now } from "./db";
 import { emulatedProviders } from "./emulate";
 import type { Env } from "./env";
@@ -184,6 +185,37 @@ export async function verifyAccessToken(env: Env, origin: string, token: string)
     return payload as JWTPayload & { seat?: string };
   } catch {
     return null;
+  }
+}
+
+/** Handles that would shadow the app's own paths (/settings, /api, …), plus the operator's. */
+const RESERVED_HANDLES = new Set(["forkyard", "y", "api", "mcp", "git", "login", "connect", "settings", "bench", "oauth", "assets", "admin", "new", "help", "about", "docs", "healthz"]);
+
+/**
+ * A person's handle, the owner part of /owner/yard: picked the first time it's needed and then
+ * fixed. Their GitHub login when they signed in with GitHub, else their email's name.
+ */
+export async function handleOf(env: Env, origin: string, userId: string): Promise<string> {
+  const have = await env.DB.prepare("SELECT handle FROM handles WHERE user_id = ?").bind(userId).first<{ handle: string }>();
+  if (have) return have.handle;
+  let base = "";
+  const token = await githubAccessToken(env, origin, userId);
+  if (token) {
+    const res = await fetch("https://api.github.com/user", { headers: { Authorization: `Bearer ${token}`, "User-Agent": "forkyard", Accept: "application/vnd.github+json" } });
+    if (res.ok) base = yardSlug(((await res.json()) as { login?: string }).login ?? "");
+  }
+  if (!base) {
+    const u = await env.DB.prepare(`SELECT email, name FROM "user" WHERE id = ?`).bind(userId).first<{ email: string; name: string }>();
+    base = yardSlug(u?.email.split("@")[0] ?? "") || yardSlug(u?.name ?? "");
+  }
+  base = base.slice(0, 36).replace(/-+$/, "");
+  if (base.length < 2) base = `user-${base}`.replace(/-+$/, "");
+  for (let n = 1; ; n++) {
+    const handle = n === 1 ? base : `${base}-${n}`;
+    if (RESERVED_HANDLES.has(handle)) continue;
+    await env.DB.prepare("INSERT OR IGNORE INTO handles (user_id, handle) VALUES (?, ?)").bind(userId, handle).run();
+    const got = await env.DB.prepare("SELECT handle FROM handles WHERE user_id = ?").bind(userId).first<{ handle: string }>();
+    if (got) return got.handle;
   }
 }
 

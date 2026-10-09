@@ -10,7 +10,7 @@ import { Overview } from "../pages/Overview";
 import { SettingsPage } from "../pages/SettingsPage";
 import { TaskPage } from "../pages/TaskPage";
 import { oauthInFlight } from "./auth-client";
-import { meQuery, queryClient } from "./queries";
+import { meQuery, queryClient, yardsQuery } from "./queries";
 import { safeNext } from "./safe-next";
 import { TaskSearch } from "./search";
 import { toasts } from "./toast";
@@ -21,8 +21,9 @@ import { toasts } from "./toast";
  *   /login                    sign in (also the OAuth login step for agents)
  *   /connect                  an agent's OAuth: pick a seat, consent
  *   /                         overview: every yard on the left, the selected one's overview on the right
- *   /y/$yard                  the same, with that yard selected
- *   /y/$yard/t/$task          a task (?agent=&file=&view=)
+ *   /$owner/$yard             the same, with that yard selected
+ *   /$owner/$yard/t/$task     a task (?agent=&file=&view=)
+ *   /y/<yard id>/…            redirects to the yard's /owner/slug
  *   /bench                    benchmarks
  *   /settings                 your account and the deployment's limits
  *
@@ -80,23 +81,41 @@ const indexRoute = createRoute({
   component: () => <Overview yard={null} />,
 });
 
+/** The yard id behind /owner/slug; /y/<id> redirects to the yard's /owner/slug. Unknown: the slug, which then 404s. */
+async function resolveYard(params: { owner: string; yard: string }) {
+  const yards = await queryClient.ensureQueryData(yardsQuery);
+  const y = params.owner === "y" ? yards.find((y) => y.id === params.yard) : yards.find((y) => y.owner === params.owner && y.slug === params.yard);
+  return { y, yardId: y?.id ?? params.yard, moved: !!y && params.owner === "y" };
+}
+
 const yardRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: "/y/$yard",
+  path: "/$owner/$yard",
+  beforeLoad: async ({ params }) => {
+    const { y, yardId, moved } = await resolveYard(params);
+    if (moved) throw redirect({ to: "/$owner/$yard", params: { owner: y!.owner, yard: y!.slug }, replace: true });
+    return { yardId };
+  },
   component: function YardOverview() {
-    const { yard } = yardRoute.useParams();
-    return <Overview yard={yard} />;
+    const { yardId } = yardRoute.useRouteContext();
+    return <Overview yard={yardId} />;
   },
 });
 
 const taskRoute = createRoute({
   getParentRoute: () => appRoute,
-  path: "/y/$yard/t/$task",
+  path: "/$owner/$yard/t/$task",
   validateSearch: TaskSearch,
+  beforeLoad: async ({ params, search }) => {
+    const { y, yardId, moved } = await resolveYard(params);
+    if (moved) throw redirect({ to: "/$owner/$yard/t/$task", params: { owner: y!.owner, yard: y!.slug, task: params.task }, search, replace: true });
+    return { yardId };
+  },
   component: function TaskRouteView() {
-    const { yard, task } = taskRoute.useParams();
+    const { task } = taskRoute.useParams();
+    const { yardId } = taskRoute.useRouteContext();
     const search = taskRoute.useSearch();
-    return <TaskPage key={`${yard}/${task}`} yard={yard} task={task} search={search} />;
+    return <TaskPage key={`${yardId}/${task}`} yard={yardId} task={task} search={search} />;
   },
 });
 

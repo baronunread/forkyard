@@ -3,8 +3,10 @@ import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { yardSlug } from "@forkyard/shared";
 import { z } from "zod";
 import { call, client, yardRoute, type CreatedTask } from "../lib/api";
+import { yardParams } from "../lib/queries";
 import { toastError, toasts } from "../lib/toast";
 import { Button, cx } from "./ui";
 
@@ -13,18 +15,6 @@ function firstError(errors: unknown[]): string | undefined {
   const e = errors[0];
   if (!e) return undefined;
   return typeof e === "string" ? e : ((e as { message?: string }).message ?? String(e));
-}
-
-/** A yard's address from its name: "My Project!" → "my-project". */
-export function yardSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40)
-    .replace(/-+$/, "");
 }
 
 /** The value, once it has stopped changing for `ms`. */
@@ -50,11 +40,13 @@ export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o
   const settledName = useSettled(name.trim());
   const settled = yardSlug(settledName);
   const check = useQuery({
-    queryKey: ["yard-name", settled, settledName.toLowerCase()],
-    queryFn: () => call(client["yard-names"][":id"].$get({ param: { id: settled }, query: { name: settledName } })),
+    queryKey: ["yard-name", settled],
+    queryFn: () => call(client["yard-names"].$get({ query: { name: settledName } })),
     enabled: open && settled.length >= 2,
     staleTime: 5_000,
+    placeholderData: (prev) => prev,
   });
+  const owner = check.data?.owner ?? "…";
   const limits = useQuery({ queryKey: ["me", "limits"], queryFn: () => call(client.me.limits.$get()), enabled: open });
   const repos = useQuery({ queryKey: ["me", "github", "repos"], queryFn: () => call(client.me.github.repos.$get()), enabled: open, staleTime: 60_000 });
   const yardsLimit = limits.data?.limits.find((l) => l.key === "yards");
@@ -66,19 +58,19 @@ export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o
     setRepo(null);
   };
   const create = useMutation({
-    mutationFn: () => call(client.yards.$post({ json: { id: slug, name: name.trim(), importUrl: picked?.cloneUrl, jurisdiction: "default" } })),
+    mutationFn: () => call(client.yards.$post({ json: { name: name.trim(), importUrl: picked?.cloneUrl, jurisdiction: "default" } })),
     onSuccess: async (y) => {
       toasts.add({ title: "Yard created", description: y.name, variant: "success" });
       await qc.invalidateQueries({ queryKey: ["yards"] });
       void qc.invalidateQueries({ queryKey: ["me", "limits"] });
       setOpen(false);
       reset();
-      void navigate({ to: "/y/$yard", params: { yard: y.id } });
+      void navigate({ to: "/$owner/$yard", params: { owner: y.owner, yard: y.slug } });
     },
     onError: (e) => toastError(e, "Could not create yard"),
   });
 
-  const fresh = settledName === name.trim() && !check.isFetching;
+  const fresh = settledName === name.trim() && !check.isFetching && check.data?.slug === slug;
   const taken = fresh && check.data && !check.data.available ? check.data : null;
   const status =
     slug.length < 2
@@ -86,12 +78,10 @@ export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o
         ? { tone: "bad", text: "Use at least two letters or numbers." }
         : null
       : !fresh || !check.data
-        ? { tone: "muted", text: `/y/${slug}` }
+        ? { tone: "muted", text: `${owner}/${slug}` }
         : check.data.available
-          ? { tone: "good", text: `Available: /y/${slug}` }
-          : taken && "mine" in taken && taken.mine
-            ? { tone: "bad", text: `You already have a yard called “${name.trim()}”.` }
-            : { tone: "bad", text: taken && "yard" in taken ? `“${name.trim()}” is taken.` : "Not a valid name." };
+          ? { tone: "good", text: `Available: ${owner}/${slug}` }
+          : { tone: "bad", text: `You already have ${owner}/${slug}.` };
   const ready = fresh && !!check.data?.available && !atLimit && !create.isPending;
 
   return (
@@ -119,12 +109,12 @@ export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o
               className={cx("mt-1.5 min-h-5 text-[13px]", status?.tone === "good" ? "text-good" : status?.tone === "bad" ? "text-bad" : "text-muted")}
             >
               {status?.text}
-              {taken && "yard" in taken && taken.mine && (
-                <button type="button" className="ml-2 text-fg underline underline-offset-2" onClick={() => (setOpen(false), reset(), void navigate({ to: "/y/$yard", params: { yard: taken.yard } }))}>
+              {taken?.yard && (
+                <button type="button" className="ml-2 text-fg underline underline-offset-2" onClick={() => (setOpen(false), reset(), void navigate({ to: "/$owner/$yard", params: yardParams(taken.yard!) }))}>
                   Open it
                 </button>
               )}
-              {taken && "suggestion" in taken && taken.suggestion && (
+              {taken?.suggestion && (
                 <button type="button" className="ml-2 text-fg underline underline-offset-2" onClick={() => setName(taken.suggestion!)}>
                   Use “{taken.suggestion}”
                 </button>
@@ -212,7 +202,7 @@ export function CreateTaskDialog({ yard, open, setOpen }: { yard: string; open: 
       else {
         setOpen(false);
         form.reset();
-        void navigate({ to: "/y/$yard/t/$task", params: { yard, task: task.task.id } });
+        void navigate({ to: "/$owner/$yard/t/$task", params: { ...yardParams(yard), task: task.task.id } });
       }
     },
     onError: (e) => toastError(e, "Could not create task"),
@@ -224,7 +214,7 @@ export function CreateTaskDialog({ yard, open, setOpen }: { yard: string; open: 
   });
   const close = () => {
     setOpen(false);
-    if (created) void navigate({ to: "/y/$yard/t/$task", params: { yard, task: created.task.id } });
+    if (created) void navigate({ to: "/$owner/$yard/t/$task", params: { ...yardParams(yard), task: created.task.id } });
     setCreated(null);
     form.reset();
   };
