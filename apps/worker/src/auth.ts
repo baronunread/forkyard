@@ -60,7 +60,10 @@ export async function principalForToken(env: Env, origin: string, token: string)
   const claims = await verifyAccessToken(env, origin, token);
   if (!claims?.sub) return null;
   const seat = claims.seat ?? ME;
-  if (seat === ME) return { kind: "user", userId: claims.sub, label: `user:${claims.sub}`, via: "oauth" };
+  if (seat === ME) {
+    const u = await env.DB.prepare(`SELECT name FROM "user" WHERE id = ?`).bind(claims.sub).first<{ name: string }>();
+    return { kind: "user", userId: claims.sub, label: u?.name || `user:${claims.sub}`, via: "oauth" };
+  }
   const [yardId, taskId, agentId] = seat.split("/");
   if (!yardId || !taskId || !agentId || !(await isMember(env, claims.sub, yardId))) return null;
   const a = await env.DB.prepare("SELECT role FROM agents WHERE yard_id = ? AND task_id = ? AND id = ?").bind(yardId, taskId, agentId).first<{ role: string }>();
@@ -83,7 +86,7 @@ export async function authenticate(env: Env, req: Request): Promise<Principal> {
     return p;
   }
   const session = await sessionFor(env, o, req.headers);
-  if (session) return { kind: "user", userId: session.user.id, label: `user:${session.user.id}`, via: "session" };
+  if (session) return { kind: "user", userId: session.user.id, label: session.user.name || `user:${session.user.id}`, via: "session" };
   if (devMode(env)) return { kind: "admin", via: "dev", label: "dev" };
   throw new AuthError("sign in required", 401);
 }

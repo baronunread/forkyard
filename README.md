@@ -4,6 +4,8 @@
 
 People are pulled in only when they're needed: an agent that is truly blocked calls `ask_human`, or no fork clears the review bar and autopilot hands the decision over. Both land in one inbox with one-click answers. Everything else is the agents' job; every UI action is also an MCP tool and a REST route, and plain `git clone` / `git push` is all an agent needs.
 
+**New here? [Using Forkyard](docs/using-forkyard.md)** is the whole flow for a person, in one page.
+
 Built for Cloudflare's [“Build the next Git platform”](https://blog.cloudflare.com/next-git-platform-on-cloudflare/) competition. MIT licensed.
 
 ![Everything: what needs you across all yards, with one-click answers; every yard on the left](docs/screenshots/inbox.png)

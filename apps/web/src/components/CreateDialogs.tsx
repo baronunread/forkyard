@@ -259,7 +259,7 @@ export function CreateTaskDialog({ yard, open, setOpen, initialBrief = "" }: { y
                     max={1000}
                     value={String(f.state.value)}
                     onChange={(e) => f.handleChange(Number(e.target.value) || 0)}
-                    description="Pi on Cloudflare, on your ChatGPT plan if connected."
+                    description="Agents that run here, on your ChatGPT plan if it's connected."
                     error={firstError(f.state.meta.errors)}
                   />
                 )}

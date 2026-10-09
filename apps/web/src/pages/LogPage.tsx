@@ -8,7 +8,7 @@ import { codeLogQuery } from "../lib/queries";
 import { ChangeLine } from "./CodePage";
 import { useYard } from "./YardLayout";
 
-const DAY = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "short", day: "numeric" });
+const DAY = new Intl.DateTimeFormat("en", { weekday: "long", month: "short", day: "numeric" });
 
 function dayOf(at: string): string {
   const d = new Date(at);
@@ -44,7 +44,7 @@ export function LogPage() {
                 <div className="min-w-0 flex-1">
                   <ChangeLine yard={yard} change={c} className="font-medium" />
                   <div className="mt-0.5 text-[13px] text-body">
-                    {c.task ? (c.task.mode === "assemble" ? `Assembled from ${c.agents.length} ${c.agents.length === 1 ? "agent" : "agents"}` : "One fork won") : `by ${c.author}`}
+                    {c.task ? (c.task.mode === "assemble" ? `Parts from ${c.agents.length} ${c.agents.length === 1 ? "agent" : "agents"}` : "One agent's work") : `by ${c.author}`}
                   </div>
                 </div>
                 <code className="shrink-0 font-mono text-xs text-muted">{c.commit.slice(0, 7)}</code>

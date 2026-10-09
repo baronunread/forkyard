@@ -89,43 +89,43 @@ export function describeEvent(e: YardEvent, agentName: (id: string | null) => st
   const who = agentName(e.agentId);
   switch (e.type) {
     case "yard.created":
-      return `yard created on ${e.data.baseRepo}`;
+      return "yard created";
     case "task.created":
-      return `task "${e.data.task.title}" fanned out to ${e.data.agentIds.length} agents`;
+      return `"${e.data.task.title}" started with ${e.data.agentIds.length} ${e.data.agentIds.length === 1 ? "agent" : "agents"}`;
     case "agent.forking":
       return `${who} is getting a fork`;
     case "agent.ready":
-      return `${who}'s fork is ready (${Math.round(e.data.forkMs)} ms)`;
+      return `${who} has a fork`;
     case "agent.failed":
       return `${who} failed: ${e.data.error}`;
     case "agent.status":
       return `${who} is ${e.data.status}${e.data.note ? ` — ${e.data.note}` : ""}`;
     case "claim.added":
-      return `${who} claimed ${e.data.claims.map((c) => c.pattern).join(", ")}`;
+      return `${who} will change ${e.data.claims.map((c) => c.pattern).join(", ")}`;
     case "claim.released":
-      return `${who} released ${e.data.patterns.join(", ")}`;
+      return `${who} no longer changes ${e.data.patterns.join(", ")}`;
     case "overlap.detected":
-      return `overlap on ${e.data.overlap.path} between ${e.data.overlap.agents.map((a) => agentName(a)).join(" & ")} (${e.data.overlap.kind})`;
+      return `${e.data.overlap.agents.map((a) => agentName(a)).join(" & ")} ${e.data.overlap.kind === "claim" ? "plan to change" : "both changed"} ${e.data.overlap.path}`;
     case "overlap.cleared":
-      return `overlap on ${e.data.overlap.path} cleared`;
+      return `${e.data.overlap.path} is no longer shared`;
     case "intent.recorded":
       return `${who}: ${e.data.intent.summary}`;
     case "push.received":
-      return `${who} pushed ${e.data.after.slice(0, 7)}${e.data.message ? ` "${e.data.message.split("\n")[0]}"` : ""}`;
+      return `${who} pushed${e.data.message ? ` "${e.data.message.split("\n")[0]}"` : ""}`;
     case "diff.updated":
-      return `${who} now changes ${e.data.paths.length} file(s), +${e.data.additions} −${e.data.deletions}`;
+      return `${who} now changes ${e.data.paths.length} ${e.data.paths.length === 1 ? "file" : "files"}, +${e.data.additions} −${e.data.deletions}`;
     case "review.started":
-      return `review started for ${who} @ ${e.data.commit.slice(0, 7)}`;
+      return `reviewing ${who}'s work`;
     case "review.completed":
       return `${who} scored ${e.data.review.score}/100 — ${e.data.review.summary}`;
     case "decision.made":
       return e.data.decision.mode === "winner"
-        ? `decided: ${agentName(e.data.decision.winnerAgentId)} wins → ${e.data.decision.resultCommit.slice(0, 7)}`
-        : `decided: assembled from ${new Set(e.data.decision.selections.map((s) => s.agentId)).size} forks → ${e.data.decision.resultCommit.slice(0, 7)}`;
+        ? `shipped ${agentName(e.data.decision.winnerAgentId)}'s work`
+        : `shipped parts from ${new Set(e.data.decision.selections.map((s) => s.agentId)).size} agents`;
     case "task.abandoned":
-      return `task abandoned: ${e.data.reason}`;
+      return `task dropped: ${e.data.reason}`;
     case "fork.deleted":
-      return `fork ${e.data.forkName} deleted`;
+      return "a fork was cleaned up";
     case "ask.opened":
       return e.agentId ? `${who} asked for help: ${e.data.ask.question}` : `needs a decision: ${e.data.ask.question}`;
     case "ask.answered":

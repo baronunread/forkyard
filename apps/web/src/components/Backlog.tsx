@@ -1,4 +1,4 @@
-import { Dialog, Empty, Input, Loader } from "@cloudflare/kumo";
+import { Dialog, Empty, Input, InputArea, Loader } from "@cloudflare/kumo";
 import { ArrowLeft, CaretRight, ChatCircle, GithubLogo, Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -22,6 +22,7 @@ export function Backlog({ yard, full = false }: { yard: string; full?: boolean }
     refetchInterval: (q) => (q.state.data?.importing ? 5_000 : false),
   });
   const [importing, setImporting] = useState(false);
+  const [filing, setFiling] = useState(false);
   const [all, setAll] = useState(false);
   const now = Date.now();
   const pulling = items.data?.importing ?? null;
@@ -63,6 +64,9 @@ export function Backlog({ yard, full = false }: { yard: string; full?: boolean }
           )}
           <Button size="sm" icon={<GithubLogo />} onClick={() => setImporting(true)}>
             Import issues
+          </Button>
+          <Button size="sm" icon={<Plus />} onClick={() => setFiling(true)}>
+            New item
           </Button>
         </div>
       </div>
@@ -151,6 +155,7 @@ export function Backlog({ yard, full = false }: { yard: string; full?: boolean }
         </Card>
       )}
       <ImportDialog yard={yard} open={importing} setOpen={setImporting} />
+      <NewItemDialog yard={yard} open={filing} setOpen={setFiling} />
     </section>
   );
 }
@@ -194,7 +199,7 @@ export function BacklogItemPage({ yard, id }: { yard: string; id: string }) {
           {d.title} <span className="font-normal text-muted">#{d.id}</span>
         </h2>
         <p className="mt-1 text-[13px] text-body">
-          {d.author} · {new Date(d.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+          {d.author} · {new Date(d.createdAt).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" })}
           {d.sourceRef && <> · imported from GitHub {d.sourceRef}</>}
         </p>
         <Card className="mt-6 px-6 py-5">
@@ -206,7 +211,7 @@ export function BacklogItemPage({ yard, id }: { yard: string; id: string }) {
             {d.thread.map((c, i) => (
               <Card key={i} className="px-6 py-4">
                 <div className="mb-2 text-[13px] text-body">
-                  <span className="font-medium text-fg">{c.author}</span> · {new Date(c.createdAt).toLocaleDateString()}
+                  <span className="font-medium text-fg">{c.author}</span> · {new Date(c.createdAt).toLocaleDateString("en")}
                 </div>
                 <Markdown base={base}>{c.body}</Markdown>
               </Card>
@@ -274,6 +279,46 @@ function ImportDialog({ yard, open, setOpen }: { yard: string; open: boolean; se
             <Button onClick={() => setOpen(false)}>Cancel</Button>
             <Button type="submit" variant="primary" loading={run.isPending} disabled={!/^[\w.-]+\/[\w.-]+/.test(repo.replace(/^https:\/\/github\.com\//, ""))}>
               Import
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+    </Dialog.Root>
+  );
+}
+
+function NewItemDialog({ yard, open, setOpen }: { yard: string; open: boolean; setOpen: (o: boolean) => void }) {
+  const qc = useQueryClient();
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const run = useMutation({
+    mutationFn: () => call(yardRoute.backlog.$post({ param: { yard }, json: { title, body } })),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["yard", yard, "backlog"] });
+      setTitle("");
+      setBody("");
+      setOpen(false);
+    },
+    onError: (e) => toastError(e, "Could not add it"),
+  });
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog className="p-6" size="base">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run.mutate();
+          }}
+        >
+          <Dialog.Title className="text-h2">New backlog item</Dialog.Title>
+          <Dialog.Description className="text-sm text-body">Something to do later. Start it when you want agents on it.</Dialog.Description>
+          <Input label="What should change" placeholder="Reject duplicate todo titles" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+          <InputArea label="Details (optional)" placeholder="Why, constraints, what done looks like…" value={body} onChange={(e) => setBody(e.target.value)} rows={4} />
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" loading={run.isPending} disabled={!title.trim()}>
+              Add
             </Button>
           </div>
         </form>

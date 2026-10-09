@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { call, client } from "../lib/api";
 import { ago } from "../lib/format";
-import { toastError } from "../lib/toast";
+import { toastError, toasts } from "../lib/toast";
 import { AgentBadge, type AgentLike } from "./AgentChip";
 import { Button, Card } from "./ui";
 import { yardParams } from "../lib/queries";
@@ -20,6 +20,7 @@ export function AskCard({ ask, agent, taskTitle, yardName }: { ask: Ask; agent?:
   const answer = useMutation({
     mutationFn: (body: { optionId?: string; text?: string }) => call(client.yards[":yard"].asks[":ask"].answer.$post({ param: { yard: ask.yardId, ask: ask.id }, json: body })),
     onSuccess: () => {
+      toasts.add({ title: decision ? "Done" : `Sent to ${who}`, variant: "success" });
       void qc.invalidateQueries({ queryKey: ["inbox"] });
       void qc.invalidateQueries({ queryKey: ["yard", ask.yardId] });
       void qc.invalidateQueries({ queryKey: ["yards"] });

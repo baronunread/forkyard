@@ -6,10 +6,10 @@ import { cx } from "./ui";
 
 const GROUPS: Record<string, string[]> = {
   pushes: ["push.received", "diff.updated"],
-  overlaps: ["overlap.detected", "overlap.cleared", "claim.added", "claim.released"],
-  intents: ["intent.recorded"],
+  "same files": ["overlap.detected", "overlap.cleared", "claim.added", "claim.released"],
+  summaries: ["intent.recorded"],
   reviews: ["review.started", "review.completed"],
-  lifecycle: ["task.created", "agent.forking", "agent.ready", "agent.failed", "agent.status", "decision.made", "task.abandoned", "fork.deleted", "yard.created", "backlog.imported"],
+  progress: ["task.created", "agent.forking", "agent.ready", "agent.failed", "agent.status", "decision.made", "task.abandoned", "fork.deleted", "yard.created", "backlog.imported"],
 };
 
 function ago(ts: string, now: number): string {

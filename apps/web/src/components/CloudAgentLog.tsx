@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { call, taskRoute } from "../lib/api";
 import { cx } from "./ui";
 
-/** What a cloud agent (Pi on Cloudflare) has done: its own transcript, tool calls and all. */
+/** What a cloud agent (Pi on Cloudflare) has done, folded away: its own transcript, tool calls and all. */
 export function CloudAgentLog({ yard, task, agent }: { yard: string; task: string; agent: string }) {
   const log = useQuery({
     queryKey: ["yard", yard, "task", task, "agent", agent, "transcript"],
@@ -12,9 +12,9 @@ export function CloudAgentLog({ yard, task, agent }: { yard: string; task: strin
   });
   const entries = (log.data?.entries ?? []).filter((e) => e.text.trim() && e.kind !== "pi.system");
   return (
-    <details className="group rounded-lg bg-surface shadow-card" open>
+    <details className="group rounded-lg bg-surface shadow-card">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-5 py-3 text-sm font-medium">
-        <Cloud size={16} className="text-body" /> What this cloud agent did
+        <Cloud size={16} className="text-body" /> What it did, step by step
         <span className="ml-auto text-xs font-normal text-muted">{entries.length} steps</span>
       </summary>
       <ol className="max-h-80 space-y-1 overflow-y-auto border-t border-line px-5 py-3 text-[13px]">

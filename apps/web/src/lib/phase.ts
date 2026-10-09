@@ -26,9 +26,9 @@ export function taskPhase(
   agentName?: (id: string) => string,
 ): Phase {
   if (task.status === "decided") {
-    const who = decision?.winnerAgentId ? `${agentName?.(decision.winnerAgentId) ?? decision.winnerAgentId}'s fork` : "an assembled change";
+    const who = decision?.winnerAgentId ? `${agentName?.(decision.winnerAgentId) ?? decision.winnerAgentId}'s work` : "combined parts";
     const by = decision?.decidedBy === "autopilot" ? "by autopilot" : decision ? `by ${decision.decidedBy}` : "";
-    return { label: `Merged ${who} ${by}`.trim(), tone: "done", progress: null };
+    return { label: `Shipped ${who} ${by}`.trim(), tone: "done", progress: null };
   }
   if (task.status === "abandoned") return { label: "Abandoned", tone: "done", progress: null };
   if (needsYou > 0) return { label: needsYou === 1 ? "Needs you" : `${needsYou} things need you`, tone: "attention", progress: null };

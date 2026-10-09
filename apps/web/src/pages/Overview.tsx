@@ -32,7 +32,7 @@ export function YardOverview() {
 
   const open = s.tasks.filter((t) => t.status === "open");
   const done = s.tasks.filter((t) => t.status === "decided").sort((a, b) => (b.decidedAt ?? "").localeCompare(a.decidedAt ?? ""));
-  const working = s.agents.filter((a) => open.some((t) => t.id === a.taskId) && a.status !== "failed" && a.status !== "retired").length;
+  const working = s.agents.filter((a) => open.some((t) => t.id === a.taskId) && ["forking", "ready", "working"].includes(a.status)).length;
   const taskTitle = (id: string | null) => s.tasks.find((t) => t.id === id)?.title ?? null;
   const agentOf = (taskId: string | null, id: string | null) => s.agents.find((a) => a.taskId === taskId && a.id === id) ?? null;
   const tree = code.data?.kind === "tree" ? code.data.tree : null;
@@ -119,7 +119,7 @@ export function YardOverview() {
           <Fact label="Shipped" value={`${done.length} ${done.length === 1 ? "change" : "changes"}`} to="/$owner/$yard/log" yard={yard} />
           <Fact label="In progress" value={`${open.length} ${open.length === 1 ? "task" : "tasks"}`} />
           {tree?.head && <Fact label="Last change" value={ago(tree.head.at, now)} />}
-          <Fact label="Created" value={new Date(s.yard.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} />
+          <Fact label="Created" value={new Date(s.yard.createdAt).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" })} />
         </dl>
       </aside>
     </div>

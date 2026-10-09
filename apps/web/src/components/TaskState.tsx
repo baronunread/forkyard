@@ -24,7 +24,7 @@ export function TaskState({ yard, detail: d }: { yard: string; detail: TaskDetai
   const open = d.task.status === "open";
   const note = !open
     ? d.decision
-      ? `Commit ${d.decision.resultCommit.slice(0, 7)} on the base branch.`
+      ? "Now on main."
       : null
     : d.autopilot === "waiting"
       ? "Autopilot merges the best-reviewed fork once every agent has settled."
