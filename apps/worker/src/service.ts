@@ -180,7 +180,13 @@ export async function yardCreate(env: Env, p: Principal, input: CreateYardInput,
   await assertCanCreateYard(env, p);
   const slug = input.id ?? yardSlug(input.name ?? "");
   if (!Slug.safeParse(slug).success) throw new ServiceError(400, "a yard's name needs at least two letters or digits");
-  const owner = await ownerOf(env, p, origin);
+  // An operator can make a yard for a person (a demo in their account): they own it, not the operator.
+  if (input.owner && p.kind !== "admin") throw new ServiceError(403, "only an admin can create a yard for someone else");
+  const ownerUser = input.owner
+    ? await env.DB.prepare("SELECT user_id FROM handles WHERE handle = ?").bind(input.owner).first<{ user_id: string }>()
+    : null;
+  if (input.owner && !ownerUser) throw new ServiceError(404, `nobody has the handle ${input.owner}`);
+  const owner = input.owner ?? (await ownerOf(env, p, origin));
   if (await ownerYard(env, owner, slug)) throw new ServiceError(409, `${owner}/${slug} already exists`);
   // The id names the repos and the Durable Object, so it's global: the slug when free, else slug-xxxxx.
   // Scripts (the operator) pick their id and get a 409 when it's taken.
@@ -239,8 +245,8 @@ export async function yardCreate(env: Env, p: Principal, input: CreateYardInput,
   )
     .bind(yard.id, yard.name, yard.owner, yard.slug, yard.baseRepo, yard.defaultBranch, yard.jurisdiction, yard.previewUrlTemplate, JSON.stringify(yard.budgets), yard.createdAt)
     .run();
-  if (p.kind === "user")
-    await env.DB.prepare("INSERT INTO yard_members (yard_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(yard.id, p.userId, now()).run();
+  const ownerId = ownerUser?.user_id ?? (p.kind === "user" ? p.userId : null);
+  if (ownerId) await env.DB.prepare("INSERT INTO yard_members (yard_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(yard.id, ownerId, now()).run();
   await yardStub(env, yard).init(yard);
   const gh = input.importUrl?.match(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/);
   if (gh) await env.DB.prepare("UPDATE yards SET importing_issues = ? WHERE id = ?").bind(gh[1]!, id).run();

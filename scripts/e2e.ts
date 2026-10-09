@@ -129,6 +129,13 @@ async function chatgptChecks(browser: Browser) {
   check(made.owner !== "forkyard" && made.slug === y, `a person's yard lives at /${made.owner}/${made.slug}`);
   const name = (await (await browser(`/api/yard-names?name=${y}`)).json()) as { available: boolean; yard: string | null; suggestion: string | null };
   check(!name.available && name.yard === y && name.suggestion === `${y} 2`, "the name check finds it and suggests the next free name");
+  // An operator can make a yard for a person (a demo in their account): it's theirs to open.
+  const forAda = `${yardId}-for-ada`;
+  await api("/yards", { body: { id: forAda, name: "Made for Ada", owner: made.owner, files: { "README.md": "# hi\n" } } });
+  const adaSees = await browser(`/api/yards/${forAda}`);
+  const seen = adaSees.ok ? ((await adaSees.json()) as { yard: { owner: string } }) : null;
+  check(seen?.yard.owner === made.owner, `a yard the operator makes for ${made.owner} is theirs (owner ${seen?.yard.owner ?? "none"})`);
+  await api(`/yards/${forAda}`, { method: "DELETE" });
   const t = (await (await browser(`/api/yards/${y}/tasks`, { json: { title: "Say hello", autopilot: false, agents: [{ name: "Kai", harness: "test" }] } })).json()) as {
     task: { id: string };
     credentials: { apiKey: string }[];

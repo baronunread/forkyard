@@ -309,6 +309,8 @@ export const CreateYardInput = z.object({
   jurisdiction: Jurisdiction.default("default"),
   previewUrlTemplate: z.string().nullable().optional(),
   budgets: Budgets.partial().optional(),
+  /** Admin only: create the yard for the person with this handle, who becomes its owner. */
+  owner: Slug.optional(),
 });
 export type CreateYardInput = z.infer<typeof CreateYardInput>;
 

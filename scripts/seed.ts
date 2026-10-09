@@ -12,6 +12,7 @@
  *   bun run seed --pace=fast          # same story, no pauses (--pace=slow doubles the pauses)
  *   bun run seed --no-decide          # leave the decision to you in the UI
  *   bun run seed --yard=my-demo
+ *   bun run seed --owner=<handle>     # on a deployment: the yard goes in that person's account
  *
  * Each agent does what a real coding agent would: workspace_get over MCP,
  * plan (what, why, files), then plain `git clone` / `git push` with its
@@ -312,7 +313,7 @@ AGENTS[1]!.steps[1]!.files["src/server.ts"] = AGENTS[1]!.steps[0]!.files["src/se
 
 async function main() {
   console.log(`Forkyard seed → ${BASE}  (yard "${yardId}", pace ×${pace})\n`);
-  await api("/yards", { body: { id: yardId, name: yardName, files: BASE_FILES } });
+  await api("/yards", { body: { id: yardId, name: yardName, files: BASE_FILES, owner: arg("owner") } });
   log("seed", `created yard ${yardId}`);
   await beat(1500);
 
@@ -331,7 +332,7 @@ async function main() {
   });
   const taskId = created.task.id;
   log("person", `started it with ${created.agents.map((a) => a.name).join(", ")}: one fork each, in ${Math.round(performance.now() - t0)} ms`);
-  console.log(`\n  Watch it live: ${BASE}/y/${yardId}/t/${taskId}\n`);
+  console.log(`\n  Watch it live: ${BASE}/${arg("owner") ?? "forkyard"}/${yardId}/t/${taskId}\n`);
   await beat(2500);
 
   const work = join(tmpdir(), `forkyard-seed-${yardId}`);
@@ -449,7 +450,7 @@ async function main() {
     }
     for (const [agent, e] of by) log("seed", `${path}: ${agent} wrote ${Math.round((e.n / why.lines) * 100)}%${e.intent ? ` (“${e.intent}”)` : ""}`);
   }
-  console.log(`\nDone. ${BASE}/y/${yardId}/t/${taskId}\n`);
+  console.log(`\nDone. ${BASE}/${arg("owner") ?? "forkyard"}/${yardId}/t/${taskId}\n`);
 }
 
 main().catch((err) => {
