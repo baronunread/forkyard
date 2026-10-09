@@ -56,14 +56,16 @@ export function initialsFor(name: string): string {
 }
 
 export function slugify(s: string, max = 32): string {
-  const slug = s
+  const full = s
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, max)
-    .replace(/-$/, "");
+    .replace(/^-|-$/g, "");
+  let slug = full.slice(0, max);
+  // Cut at a word boundary: "catch-up-with-github" over "catch-up-with-github-mai".
+  if (full.length > max && full[max] !== "-" && slug.lastIndexOf("-") > max / 2) slug = slug.slice(0, slug.lastIndexOf("-"));
+  slug = slug.replace(/-$/, "");
   return slug.length >= 2 ? slug : `x-${slug || "0"}`;
 }
 

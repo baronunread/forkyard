@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forkName, initialsFor, parseForkName, parseIntentMarkdown, summarize, intentMarkdown, YardEvent } from "../src";
+import { forkName, initialsFor, parseForkName, parseIntentMarkdown, slugify, summarize, intentMarkdown, YardEvent } from "../src";
 
 describe("naming", () => {
   it("round-trips fork names", () => {
@@ -37,5 +37,13 @@ describe("events", () => {
       type: "claim.released", data: { patterns: ["src/**"] },
     });
     expect(e.type).toBe("claim.released");
+  });
+});
+
+describe("slugify", () => {
+  it("cuts long titles at a word boundary", () => {
+    expect(slugify("Catch up with GitHub main", 24)).toBe("catch-up-with-github");
+    expect(slugify("Supercalifragilisticexpialidocious word", 10)).toBe("supercalif");
+    expect(slugify("Add auth", 24)).toBe("add-auth");
   });
 });

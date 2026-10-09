@@ -375,14 +375,23 @@ async function aiReview(
       { role: "user", content: prompt },
     ];
     // Model output schemas differ across Workers AI models; accept both shapes.
-    const out = (await (env.AI.run as (m: string, i: unknown) => Promise<unknown>)(model.slice("workers-ai:".length), { messages, max_tokens: 800 })) as {
+    // Reasoning models think before they answer: the budget has to cover both, or the answer comes back empty.
+    const out = (await (env.AI.run as (m: string, i: unknown) => Promise<unknown>)(model.slice("workers-ai:".length), {
+      messages,
+      max_tokens: 6000,
+      response_format: { type: "json_object" },
+    })) as {
       response?: string | object;
-      choices?: { message?: { content?: string } }[];
+      choices?: { message?: { content?: string | null }; finish_reason?: string }[];
     };
     raw = typeof out.response === "object" ? JSON.stringify(out.response) : (out.response ?? out.choices?.[0]?.message?.content ?? "");
+    if (!raw) console.warn("workers ai review came back empty", model, out.choices?.[0]?.finish_reason);
   }
   const json = /\{[\s\S]*\}/.exec(raw)?.[0];
-  if (!json) return null;
+  if (!json) {
+    console.warn("review answer has no JSON", model, raw.slice(0, 200));
+    return null;
+  }
   try {
     const parsed = JSON.parse(json) as { score?: number; summary?: string; comments?: ReviewComment[] };
     const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score))));
