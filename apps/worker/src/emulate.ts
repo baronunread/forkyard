@@ -28,10 +28,8 @@ export function emulatedProviders(env: Env): Emulated | null {
   return value;
 }
 
-function build(env: Env): Emulated | null {
-  const gh = env.EMULATE_GITHUB_URL?.replace(/\/$/, "");
-  const google = env.EMULATE_GOOGLE_URL?.replace(/\/$/, "");
-  if (!gh && !google) return null;
+/** Provider URL prefixes → emulator URL prefixes. */
+function hostMap(gh: string | undefined, google: string | undefined): [string, string][] {
   const map: [string, string][] = [];
   if (gh) map.push(["https://github.com/", `${gh}/`], ["https://api.github.com/", `${gh}/`]);
   if (google)
@@ -40,16 +38,29 @@ function build(env: Env): Emulated | null {
       ["https://oauth2.googleapis.com/token", `${google}/oauth2/token`],
       ["https://www.googleapis.com/", `${google}/`],
     );
-  const rewrite = (url: string) => {
-    for (const [from, to] of map) if (url.startsWith(from)) return to + url.slice(from.length);
-    return url;
-  };
+  return map;
+}
+
+const rewriter = (map: [string, string][]) => (url: string) => {
+  for (const [from, to] of map) if (url.startsWith(from)) return to + url.slice(from.length);
+  return url;
+};
+
+function build(env: Env): Emulated | null {
+  const strip = (u?: string) => u?.replace(/\/$/, "");
+  const gh = strip(env.EMULATE_GITHUB_URL);
+  const google = strip(env.EMULATE_GOOGLE_URL);
+  if (!gh && !google) return null;
+  // The browser goes to the public URLs (e.g. https://github.emulate.forkyard.localhost through
+  // portless); the Worker can call the emulators directly when *_INTERNAL_URL is set.
+  const rewrite = rewriter(hostMap(gh, google));
+  const rewriteServer = rewriter(hostMap(strip(env.EMULATE_GITHUB_INTERNAL_URL) ?? gh, strip(env.EMULATE_GOOGLE_INTERNAL_URL) ?? google));
 
   // Server-side provider calls.
   const realFetch = globalThis.fetch;
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const to = rewrite(url);
+    const to = rewriteServer(url);
     if (to === url) return realFetch(input, init);
     return realFetch(input instanceof Request ? new Request(to, input) : to, init);
   }) as typeof fetch;

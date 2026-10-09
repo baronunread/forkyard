@@ -7,7 +7,7 @@ bun install
 bun run dev            # worker on :8787, UI on :5173
 ```
 
-Open http://localhost:5173 in a 1600×1000 window (dark theme looks best on video; toggle with the theme button). Keep a terminal visible next to it.
+Open https://forkyard.localhost in a 1600×1000 window (dark theme looks best on video; toggle with the theme button). Keep a terminal visible next to it.
 
 ## 1. The pitch (30 s)
 

@@ -24,11 +24,11 @@ Requirements: Node 22+, Bun 1.3+, git.
 
 ```sh
 bun install
-bun run dev          # emulated GitHub + Google, the worker (API, MCP, git) on :8787, the UI on http://localhost:5173
+bun run dev          # https://forkyard.localhost (portless), sign in as a seeded GitHub/Google user; worker on :8787
 bun run seed         # in another terminal: a yard, a task, four agents working concurrently
 ```
 
-`bun run dev` needs **no Cloudflare account and no OAuth apps**. Sign-in runs the real GitHub / Google flow against [emulate.dev](https://emulate.dev) (`emulate.config.yaml` seeds users such as `ada` and `grace@forkyard.dev`; pick one on the emulator's page). And the Artifacts binding (which has no local simulator) is replaced by a local emulator Durable Object that speaks real git smart HTTP, so the seed's scripted agents — and any real agent — can `git clone` and `git push` against it. Queues, Workflows, D1 and Durable Objects run in `wrangler dev`.
+`bun run dev` needs **no Cloudflare account and no OAuth apps**. Sign-in runs the real GitHub / Google flow against [emulate.dev](https://emulate.dev) (`emulate.config.yaml` seeds users such as `ada` and `grace@forkyard.dev`; pick one on the emulator's page). Everything sits behind [portless](https://github.com/vercel-labs/portless) on free ports, so it never fights other projects for :4001 or :5173; the first run may ask for sudo to start its HTTPS proxy on 443. Without portless (`PORTLESS=0`, or Linux CI) it falls back to http://localhost:5173. And the Artifacts binding (which has no local simulator) is replaced by a local emulator Durable Object that speaks real git smart HTTP, so the seed's scripted agents — and any real agent — can `git clone` and `git push` against it. Queues, Workflows, D1 and Durable Objects run in `wrangler dev`.
 
 Other scripts:
 

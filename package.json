@@ -14,24 +14,22 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "node scripts/ensure-dist.mjs && bun run --cwd apps/worker db:migrate:local && bun run --cwd apps/worker build:types && concurrently -k -n emulate,worker,web -c magenta,yellow,cyan \"bun run emulate\" \"bun run --cwd apps/worker dev\" \"bun run --cwd apps/web dev\"",
+    "dev": "node scripts/ensure-dist.mjs && bun run --cwd apps/worker db:migrate:local && bun run --cwd apps/worker build:types && bun scripts/dev.ts",
     "build": "bun run --cwd apps/web build",
     "deploy": "bun run build && bun run --cwd apps/worker db:migrate:remote && bun run --cwd apps/worker deploy",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test",
-    "seed": "bun scripts/seed.ts",
-    "bench:fork": "bun scripts/bench-fork.ts",
-    "bench:events": "bun scripts/bench-events.ts",
-    "e2e": "bun scripts/e2e.ts",
-    "cleanup": "bun scripts/cleanup.ts",
-    "emulate": "emulate start --service github,google --port 4001 --seed emulate.config.yaml",
-    "swarm": "bun scripts/swarm.ts",
-    "demo:inbox": "bun scripts/inbox-demo.ts"
+    "seed": "bun --use-system-ca scripts/seed.ts",
+    "bench:fork": "bun --use-system-ca scripts/bench-fork.ts",
+    "bench:events": "bun --use-system-ca scripts/bench-events.ts",
+    "e2e": "bun --use-system-ca scripts/e2e.ts",
+    "cleanup": "bun --use-system-ca scripts/cleanup.ts",
+    "swarm": "bun --use-system-ca scripts/swarm.ts",
+    "demo:inbox": "bun --use-system-ca scripts/inbox-demo.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "concurrently": "^9.2.0",
-    "emulate": "0.12.1",
+    "portless": "0.15.7",
     "typescript": "^5.9.0"
   },
   "trustedDependencies": [

@@ -16,6 +16,7 @@ github:
       client_secret: forkyard-local-secret
       name: Forkyard (local)
       redirect_uris:
+        - https://forkyard.localhost/api/auth/callback/github
         - http://localhost:5173/api/auth/callback/github
         - http://localhost:8787/api/auth/callback/github
 
@@ -29,5 +30,6 @@ google:
     - client_id: forkyard-local.apps.googleusercontent.com
       client_secret: forkyard-local-secret
       redirect_uris:
+        - https://forkyard.localhost/api/auth/callback/google
         - http://localhost:5173/api/auth/callback/google
         - http://localhost:8787/api/auth/callback/google

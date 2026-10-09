@@ -5,7 +5,10 @@ import { promisify } from "node:util";
 
 /** Small helpers shared by the seed, bench and e2e scripts. Node 22+, no deps. */
 
-export const BASE = (process.env.FORKYARD_URL ?? "http://localhost:8787").replace(/\/$/, "");
+/** `bun run dev` behind portless serves the app at https://forkyard.localhost; plain wrangler dev at :8787. */
+const DEV = "https://forkyard.localhost";
+const devUp = await fetch(`${DEV}/api/me`, { signal: AbortSignal.timeout(1500) }).then((r) => r.ok, () => false);
+export const BASE = (process.env.FORKYARD_URL ?? (devUp ? DEV : "http://localhost:8787")).replace(/\/$/, "");
 export const ADMIN_KEY = process.env.FORKYARD_ADMIN_KEY ?? "";
 
 const run = promisify(execFile);
