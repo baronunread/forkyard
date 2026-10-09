@@ -15,7 +15,7 @@ import {
 import { Hono } from "hono";
 import { z } from "zod";
 import { AuthError, authenticate, devMode, isMember, type Principal } from "./auth";
-import { ME, origin, recordSeatChoice, sessionFor } from "./better-auth";
+import { githubAccessToken, ME, origin, recordSeatChoice, sessionFor } from "./better-auth";
 import * as chatgpt from "./chatgpt";
 import type { Env } from "./env";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
@@ -33,6 +33,8 @@ const agentParam = z.object({ yard: z.string(), task: z.string(), agent: z.strin
  * REST API. Every route maps 1:1 to a service function that the MCP server
  * also exposes, so the UI never has a capability agents lack.
  */
+const githubTokenOf = (env: Env, p: Principal, req: Request) => (p.kind === "user" ? githubAccessToken(env, origin(env, req), p.userId) : Promise.resolve(null));
+
 export const api = new Hono<HonoEnv>()
   .use("*", async (c, next) => {
     c.set("principal", await authenticate(c.env, c.req.raw));
@@ -125,7 +127,9 @@ export const api = new Hono<HonoEnv>()
     c.json(await backlog.backlogFile(c.env, c.get("principal"), c.req.valid("param").yard, c.req.valid("json")), 201),
   )
   .post("/yards/:yard/backlog/import/github", zValidator("param", yardParam), zValidator("json", ImportIssuesInput), async (c) =>
-    c.json(await backlog.backlogImportGithub(c.env, c.get("principal"), c.req.valid("param").yard, c.req.valid("json").repo)),
+    c.json(
+      await backlog.backlogImportGithub(c.env, c.get("principal"), c.req.valid("param").yard, c.req.valid("json").repo, await githubTokenOf(c.env, c.get("principal"), c.req.raw)),
+    ),
   )
   .get("/yards/:yard/backlog/:item", zValidator("param", z.object({ yard: z.string(), item: z.string() })), async (c) => {
     const { yard, item } = c.req.valid("param");

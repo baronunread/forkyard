@@ -75,16 +75,22 @@ interface GhIssue {
 }
 
 /**
- * Open issues of a public GitHub repo, with their comments, as backlog items. Re-running skips
- * what's already here. ponytail: unauthenticated GitHub API (60 requests/hour, public repos only);
- * private repos and image re-hosting come with the signed-in GitHub token (#14).
+ * Open issues of a GitHub repo, with their comments, as backlog items. Re-running skips what's
+ * already here. Uses the caller's GitHub sign-in token when there is one (5,000 requests/hour);
+ * without it, GitHub's anonymous limit (60/hour, shared by Cloudflare's egress IPs) applies.
+ * ponytail: public repos only (sign-in asks for no repo scope); private repos and image
+ * re-hosting come with #14.
  */
-export async function backlogImportGithub(env: Env, p: Principal, yardId: string, repo: string, f: typeof fetch = fetch) {
+export async function backlogImportGithub(env: Env, p: Principal, yardId: string, repo: string, token: string | null, f: typeof fetch = fetch) {
   await assertMemberOrAdmin(env, p, yardId);
   if (!(await getYard(env.DB, yardId))) throw new ServiceError(404, `yard ${yardId} not found`);
   const gh = async <T>(url: string): Promise<T> => {
-    const res = await f(url, { headers: { Accept: "application/vnd.github+json", "User-Agent": "forkyard", "X-GitHub-Api-Version": "2022-11-28" } });
+    const res = await f(url, {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "forkyard", "X-GitHub-Api-Version": "2022-11-28", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
     if (res.status === 404) throw new ServiceError(404, `GitHub repo ${repo} not found (public repos only for now)`);
+    if (res.status === 403 || res.status === 429)
+      throw new ServiceError(429, token ? "GitHub's rate limit is spent; try again in an hour" : "GitHub's rate limit for anonymous requests is spent; sign in with GitHub to import");
     if (!res.ok) throw new ServiceError(502, `GitHub answered ${res.status}: ${(await res.text()).slice(0, 200)}`);
     return res.json() as Promise<T>;
   };

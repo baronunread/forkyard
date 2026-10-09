@@ -186,3 +186,15 @@ export async function verifyAccessToken(env: Env, origin: string, token: string)
     return null;
   }
 }
+
+/** A person's GitHub access token from their sign-in (refreshed when it has expired), or null. */
+export async function githubAccessToken(env: Env, origin: string, userId: string): Promise<string | null> {
+  const row = await env.DB.prepare(`SELECT id FROM "account" WHERE "userId" = ? AND "providerId" = 'github'`).bind(userId).first<{ id: string }>();
+  if (!row) return null;
+  try {
+    return (await getAuth(env, origin).api.getAccessToken({ body: { accountId: row.id, userId } })).accessToken ?? null;
+  } catch (err) {
+    console.warn("github token unavailable", err);
+    return null;
+  }
+}
