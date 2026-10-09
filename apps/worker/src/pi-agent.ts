@@ -13,6 +13,7 @@ import { getAgent, getTask, getYard } from "./db";
 import { readPathAt, treeChanges, commitTree } from "./diff";
 import type { Env } from "./env";
 import { buildCommit, type FileChange } from "./git/build";
+import { limits, spendWorkersAi } from "./limits";
 import { yardStub } from "./yard";
 
 /**
@@ -74,6 +75,11 @@ export class PiAgent extends Agent<Env> {
 
   // ── the seat ───────────────────────────────────────────────────────────────
 
+  /** The seat's yard Durable Object, in the yard's own jurisdiction. */
+  private async yardOf(seat: PiAgentSeat) {
+    return yardStub(this.env, (await getYard(this.env.DB, seat.yardId)) ?? { id: seat.yardId, jurisdiction: "default" });
+  }
+
   private seat(): PiAgentSeat {
     const row = this.ctx.storage.sql.exec<{ v: string }>("SELECT v FROM seat WHERE k = 'seat'").toArray()[0];
     if (!row) throw new Error("this cloud agent has no seat yet");
@@ -84,6 +90,7 @@ export class PiAgent extends Agent<Env> {
   async start(seat: PiAgentSeat): Promise<{ model: string }> {
     this.ctx.storage.sql.exec("INSERT OR REPLACE INTO seat (k, v) VALUES ('seat', ?)", JSON.stringify(seat));
     const model = await this.pickModel(seat);
+    this.ctx.storage.sql.exec("INSERT OR REPLACE INTO seat (k, v) VALUES ('provider', ?)", model.provider);
     await this.harness.session().setModel(model);
     const task = await getTask(this.env.DB, seat.yardId, seat.taskId);
     await this.harness.submit(
@@ -91,13 +98,13 @@ export class PiAgent extends Agent<Env> {
       { operationId: RUN },
     );
     await this.schedule(CHECK_SECONDS, "checkRun");
-    await yardStub(this.env, { id: seat.yardId, jurisdiction: "default" }).agentNote(seat.taskId, seat.agentId, null, `cloud agent started on ${model.provider}/${model.id}`);
+    await (await this.yardOf(seat)).agentNote(seat.taskId, seat.agentId, null, `cloud agent started on ${model.provider}/${model.id}`);
     return { model: `${model.provider}/${model.id}` };
   }
 
   private async pickModel(seat: PiAgentSeat): Promise<{ provider: string; id: string }> {
     if (seat.ownerUserId && (await chatgpt.status(this.env, seat.ownerUserId)).connected) return { provider: chatgpt.CHATGPT, id: chatgpt.CHATGPT_REVIEW_MODEL };
-    if (this.env.AI) return { provider: "workers-ai", id: this.env.PI_AGENT_MODEL || WORKERS_AI_DEFAULT };
+    if (this.env.AI) return { provider: "cloudflare", id: this.env.PI_AGENT_MODEL || WORKERS_AI_DEFAULT };
     return { provider: "scripted", id: "demo" };
   }
 
@@ -124,7 +131,7 @@ export class PiAgent extends Agent<Env> {
     }
     const r = await this.harness.wait(RUN);
     const seat = this.seat();
-    const yard = yardStub(this.env, { id: seat.yardId, jurisdiction: "default" });
+    const yard = await this.yardOf(seat);
     if (r.status === "done") await yard.agentNote(seat.taskId, seat.agentId, null, `cloud agent finished: ${(r.text ?? "").slice(0, 200) || "done"}`);
     else await yard.agentNote(seat.taskId, seat.agentId, "failed", `cloud agent stopped: ${r.reason ?? "unknown"}`);
   }
@@ -164,6 +171,32 @@ export class PiAgent extends Agent<Env> {
   }
 
   // ── tools ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Hard limits per turn: LIMIT_AGENT_TURNS tool calls per agent, and each turn on Workers AI
+   * spends one call of today's LIMIT_WORKERS_AI_PER_DAY. Past either, the run is aborted.
+   * ponytail: counts tool calls, not model calls; a reply with no tool call ends the run anyway.
+   */
+  private metered<A extends unknown[], R>(execute: (...args: A) => Promise<R>) {
+    return async (...args: A): Promise<R> => {
+      this.ctx.storage.sql.exec("INSERT INTO seat (k, v) VALUES ('turns', '1') ON CONFLICT (k) DO UPDATE SET v = CAST(v AS INTEGER) + 1");
+      const turns = Number(this.ctx.storage.sql.exec<{ v: string }>("SELECT v FROM seat WHERE k = 'turns'").one().v);
+      const provider = this.ctx.storage.sql.exec<{ v: string }>("SELECT v FROM seat WHERE k = 'provider'").toArray()[0]?.v;
+      const over =
+        turns > limits(this.env).agentTurns
+          ? `turn limit reached (${limits(this.env).agentTurns})`
+          : provider === "cloudflare" && !(await spendWorkersAi(this.env))
+            ? "today's Workers AI budget is spent"
+            : limits(this.env).paused
+              ? "Forkyard is paused"
+              : null;
+      if (over) {
+        this.ctx.waitUntil(this.harness.session().abort());
+        throw new Error(`Stopped: ${over}.`);
+      }
+      return execute(...args);
+    };
+  }
 
   private async fork() {
     const seat = this.seat();
@@ -244,7 +277,7 @@ export class PiAgent extends Agent<Env> {
       replay: "safe",
       execute: async ({ paths }) => {
         const seat = this.seat();
-        const r = await yardStub(this.env, { id: seat.yardId, jurisdiction: "default" }).claim(seat.taskId, seat.agentId, paths);
+        const r = await (await this.yardOf(seat)).claim(seat.taskId, seat.agentId, paths);
         return text(r.overlaps.length ? `Claimed. Overlaps: ${r.overlaps.map((o) => `${o.path} (${o.agents.join(", ")})`).join("; ")}` : "Claimed. No overlaps.");
       },
     };
@@ -254,7 +287,7 @@ export class PiAgent extends Agent<Env> {
       parameters: Intent,
       execute: async ({ summary, why }) => {
         const seat = this.seat();
-        await yardStub(this.env, { id: seat.yardId, jurisdiction: "default" }).recordIntent(seat.taskId, seat.agentId, { summary, why }, "mcp");
+        await (await this.yardOf(seat)).recordIntent(seat.taskId, seat.agentId, { summary, why }, "mcp");
         return text("Intent recorded.");
       },
     };
@@ -289,7 +322,7 @@ export class PiAgent extends Agent<Env> {
       parameters: Ask,
       execute: async ({ question, options }) => {
         const seat = this.seat();
-        await yardStub(this.env, { id: seat.yardId, jurisdiction: "default" }).openAsk(
+        await (await this.yardOf(seat)).openAsk(
           seat.taskId,
           seat.agentId,
           "question",
@@ -300,7 +333,7 @@ export class PiAgent extends Agent<Env> {
         return text("Asked. Carry on with anything that doesn't depend on the answer.");
       },
     };
-    return [list, read, write, del, claim, intent, push, ask] as ToolRegistration[];
+    return ([list, read, write, del, claim, intent, push, ask] as ToolRegistration[]).map((t) => ({ ...t, execute: this.metered(t.execute) }));
   }
 }
 

@@ -63,6 +63,18 @@ export interface Env {
   /** Local only: emulate.dev base URLs that stand in for GitHub and Google. */
   EMULATE_GITHUB_URL?: string;
   EMULATE_GOOGLE_URL?: string;
+  /** Where the Worker itself reaches the emulators, when that differs from the browser-facing URL (portless). */
+  EMULATE_GITHUB_INTERNAL_URL?: string;
+  EMULATE_GOOGLE_INTERNAL_URL?: string;
+
+  // Hard limits (src/limits.ts); unset = no cap
+  FORKYARD_PAUSED?: string;
+  LIMIT_YARDS_PER_ACCOUNT?: string;
+  LIMIT_TASKS_PER_ACCOUNT_PER_DAY?: string;
+  LIMIT_AGENTS_PER_TASK?: string;
+  LIMIT_LIVE_FORKS?: string;
+  LIMIT_AGENT_TURNS?: string;
+  LIMIT_WORKERS_AI_PER_DAY?: string;
 
   // Tuning
   FORK_TTL_HOURS?: string;

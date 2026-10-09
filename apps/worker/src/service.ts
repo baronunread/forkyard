@@ -47,6 +47,7 @@ import { computeHunks, forkDiff, mapLimit, readPathAt } from "./diff";
 import type { Env } from "./env";
 import { buildCommit, textFile } from "./git/build";
 import { deletePreviewBranch, previewBranchSlug } from "./preview";
+import { assertCanCreateTask, assertCanCreateYard, limits } from "./limits";
 import { piAgentStub } from "./pi-agent";
 import { yardStub } from "./yard";
 
@@ -150,6 +151,7 @@ export async function yardsList(env: Env, p: Principal): Promise<(Yard & { summa
 
 export async function yardCreate(env: Env, p: Principal, input: CreateYardInput): Promise<Yard> {
   assertPerson(p);
+  await assertCanCreateYard(env, p);
   if (await getYard(env.DB, input.id)) throw new ServiceError(409, `yard ${input.id} already exists`);
   const artifacts = getArtifacts(env, input.jurisdiction);
   const name = baseRepoName(input.id);
@@ -232,6 +234,7 @@ export async function taskCreate(env: Env, p: Principal, yardId: string, input: 
   await assertMemberOrAdmin(env, p, yardId);
   const yard = await mustYard(env, yardId);
   if (input.id && (await getTask(env.DB, yardId, input.id))) throw new ServiceError(409, `task ${input.id} already exists`);
+  await assertCanCreateTask(env, p, input.agents.length);
   const res = await yardStub(env, yard).createTask(input, p.label, p.kind === "user" ? p.userId : null);
   return { ...res, agents: res.agents.map((a) => ({ ...a, previewUrl: previewUrl(yard, a) })) };
 }
@@ -587,7 +590,7 @@ export async function decide(env: Env, p: Principal, yardId: string, taskId: str
 export async function benchFork(env: Env, p: Principal, yardId: string, concurrency: number, label?: string) {
   await assertMemberOrAdmin(env, p, yardId);
   const yard = await mustYard(env, yardId);
-  const n = Math.max(1, Math.min(100, Math.floor(concurrency)));
+  const n = Math.max(1, Math.min(100, limits(env).liveForks, Math.floor(concurrency)));
   const artifacts = getArtifacts(env, yard.jurisdiction);
   const base = await artifacts.get(yard.baseRepo);
   const run = newId("bf").slice(0, 10);

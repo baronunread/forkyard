@@ -14,6 +14,7 @@ import * as chatgpt from "./chatgpt";
 import { agentByForkName, getAgent, getTask, getYard, listIntents, newId, now } from "./db";
 import { computeHunks, forkDiff, mapLimit, readPathAt, readText } from "./diff";
 import type { Env } from "./env";
+import { spendWorkersAi } from "./limits";
 import { mirrorPreviewBranch } from "./preview";
 import { yardStub } from "./yard";
 
@@ -367,7 +368,7 @@ async function aiReview(
     }
   }
   if (raw === null) {
-    if (!env.AI) return null;
+    if (!env.AI || !(await spendWorkersAi(env))) return null;
     model = `workers-ai:${env.REVIEW_MODEL || "@cf/moonshotai/kimi-k2.7-code"}`;
     const messages = [
       { role: "system", content: system },
