@@ -109,8 +109,9 @@ describe("ChatGPT sign-in for reviews", () => {
   });
 
   it("reviews through pi-ai's Codex provider with the person's subscription", async () => {
+    const access = token(7);
     const o = fakeOpenAI();
-    await chatgpt.save(env, "u1", { type: "oauth", access: token(7), refresh: "refresh_7", expires: Date.now() + 3600_000, accountId: "acct_123" });
+    await chatgpt.save(env, "u1", { type: "oauth", access, refresh: "refresh_7", expires: Date.now() + 3600_000, accountId: "acct_123" });
     db.prepare("INSERT INTO yard_members VALUES ('y1', 'u1', 'owner', '')").run();
     expect(await chatgpt.yardReviewer(env, "y1")).toBe("u1");
     const realFetch = globalThis.fetch;
@@ -123,7 +124,7 @@ describe("ChatGPT sign-in for reviews", () => {
       globalThis.fetch = realFetch;
     }
     const call = o.calls.find((c) => c.url.startsWith("https://chatgpt.com/backend-api/codex/responses"))!;
-    expect(call.headers.get("authorization")).toBe(`Bearer ${token(7).split(".").slice(0, 2).join(".")}.sig`);
+    expect(call.headers.get("authorization")).toBe(`Bearer ${access}`);
     expect(call.headers.get("chatgpt-account-id")).toBe("acct_123");
     expect(o.refreshes()).toBe(0);
     await chatgpt.setUseForReviews(env, "u1", false);
