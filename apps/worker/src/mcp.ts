@@ -5,6 +5,7 @@ import type { Context } from "hono";
 import { z } from "zod";
 import type { Principal } from "./auth";
 import type { Env } from "./env";
+import * as code from "./code";
 import * as svc from "./service";
 
 /**
@@ -70,6 +71,26 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
     "yard_create",
     { description: desc.yard_create, inputSchema: CreateYardInput },
     wrap(async (a) => ok(await svc.yardCreate(env, p, a, origin))),
+  );
+
+  server.registerTool(
+    "code_why",
+    {
+      description: desc.code_why,
+      inputSchema: z.object({
+        yardId: scope.yardId,
+        path: z.string().min(1).describe("File path on the base, e.g. src/todos.ts"),
+        from: z.number().int().min(1).optional().describe("First line (1-based)"),
+        to: z.number().int().min(1).optional().describe("Last line (1-based)"),
+      }),
+    },
+    wrap(async (a) => {
+      const { yardId } = resolve(p, a, false);
+      const r = await code.codeWhy(env, p, yardId, a.path.replace(/^\/+/, ""));
+      const from = (a.from ?? 1) - 1;
+      const to = a.to ?? r.lines;
+      return ok({ ...r, spans: r.spans.filter((s) => s.end > from && s.start < to).map((s) => ({ ...s, lines: `${s.start + 1}-${s.end}` })) });
+    }),
   );
 
   server.registerTool(

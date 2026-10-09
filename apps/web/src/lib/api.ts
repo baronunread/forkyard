@@ -75,6 +75,7 @@ export type CreatedTask = { task: Task; agents: (Agent & { previewUrl: string | 
 export type CodeTree = Res<(typeof y.code)["tree"]["$get"]>;
 export type CodeFile = Res<(typeof y.code)["file"]["$get"]>;
 export type CodeLog = Res<(typeof y.code)["log"]["$get"]>;
+export type CodeWhy = Res<(typeof y.code)["why"]["$get"]>;
 export type Change = CodeLog["changes"][number];
 export type BenchRuns = Res<typeof client.bench.$get>;
 export type Latency = Res<typeof y.latency.$get>;

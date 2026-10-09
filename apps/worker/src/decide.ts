@@ -1,5 +1,7 @@
 import {
   applyHunks,
+  splitLines,
+  type TaggedHunk,
   type Agent,
   type AssembledFile,
   type DecideConflict,
@@ -128,12 +130,14 @@ async function preview(ctx: Ctx, input: DecideInput): Promise<DecidePreview> {
       for (const c of res.conflicts)
         conflicts.push({ path, detail: `hunks overlap at base line ${c.a.hunk.oldStart}`, agents: [c.a.agentId, c.b.agentId] });
       const fromAgents = [...new Set(tagged.map((t) => t.agentId))];
+      const lineAgents = fromAgents.length > 1 && res.text ? attributeLines(path, base.text ?? "", res.text, tagged) : undefined;
       const deletedAll = !base.exists ? false : res.text === "" && versions.every((v) => !v.exists);
       files.push({
         path,
         status: deletedAll ? "deleted" : base.exists ? "modified" : "added",
         contents: deletedAll ? null : res.text,
         fromAgents,
+        ...(lineAgents && !deletedAll ? { lineAgents } : {}),
       });
     }
   } finally {
@@ -206,8 +210,32 @@ export async function applyDecision(
     )
       .bind(decision.id, yard.id, task.id, decision.mode, decision.winnerAgentId, JSON.stringify(decision.selections), decision.resultCommit, decidedBy, decision.createdAt)
       .run();
+    // Keep who wrote which line of multi-agent files: the forks that know it get cleaned up.
+    const mixed = p.files.filter((f) => f.lineAgents);
+    if (mixed.length)
+      await env.DB.batch(
+        mixed.map((f) =>
+          env.DB.prepare("INSERT OR REPLACE INTO line_agents (yard_id, commit_hash, path, agents) VALUES (?, ?, ?, ?)").bind(yard.id, built.commit, f.path, JSON.stringify(f.lineAgents)),
+        ),
+      );
     return { decision, preview: p };
   } finally {
     disposeRepo(base);
   }
+}
+
+/**
+ * Who wrote each line of an assembled file: a line the merge added (relative to the base) goes to
+ * the agent whose selected hunk added that exact text; unchanged lines are null.
+ */
+export function attributeLines(path: string, base: string, result: string, tagged: TaggedHunk[]): (string | null)[] {
+  const byText = new Map<string, string>();
+  for (const t of tagged) for (const l of t.hunk.lines) if (l.startsWith("+") && !byText.has(l.slice(1))) byText.set(l.slice(1), t.agentId);
+  const lines = splitLines(result);
+  const out: (string | null)[] = lines.map(() => null);
+  for (const h of computeHunks(path, base, result)) {
+    const start = Math.max(0, h.newStart - 1);
+    for (let i = start; i < start + h.newLines; i++) out[i] = byText.get(lines[i]!) ?? null;
+  }
+  return out;
 }

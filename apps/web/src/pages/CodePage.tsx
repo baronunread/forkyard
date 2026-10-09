@@ -6,9 +6,11 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Markdown } from "../components/Markdown";
 import { Button, Card, cx } from "../components/ui";
-import type { Change, CodeFile, CodeTree } from "../lib/api";
+import { initialsFor } from "@forkyard/shared";
+import { AgentBadge } from "../components/AgentChip";
+import type { Change, CodeFile, CodeTree, CodeWhy } from "../lib/api";
 import { ago } from "../lib/format";
-import { codeQuery, yardParams } from "../lib/queries";
+import { codeQuery, codeWhyQuery, yardParams } from "../lib/queries";
 import { useTheme } from "../lib/theme";
 import { useYard } from "./YardLayout";
 
@@ -139,11 +141,66 @@ function size(n: number): string {
   return n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+type Span = CodeWhy["spans"][number];
+
+/** Share of the file's lines per author: agents in their colors, everything else grey. */
+function Authorship({ spans, lines, on, toggle }: { spans: Span[]; lines: number; on: boolean; toggle: () => void }) {
+  const by = new Map<string, { name: string; color: string; n: number }>();
+  for (const s of spans) {
+    const k = s.agent ?? "";
+    const e = by.get(k) ?? { name: s.agent ?? "Before agents", color: s.color ?? "var(--color-line-strong)", n: 0 };
+    e.n += s.end - s.start;
+    by.set(k, e);
+  }
+  const parts = [...by.values()].sort((a, b) => b.n - a.n);
+  const agents = parts.filter((p) => p.name !== "Before agents");
+  return (
+    <button
+      onClick={toggle}
+      aria-pressed={on}
+      title={parts.map((p) => `${p.name}: ${Math.round((p.n / Math.max(1, lines)) * 100)}%`).join(" · ")}
+      className={cx("flex items-center gap-2 rounded-md px-2 py-1 text-xs ring-1 ring-line hover:bg-hover", on ? "bg-selected text-fg" : "text-body")}
+    >
+      <span className="flex h-1.5 w-24 overflow-hidden rounded-full bg-line">
+        {parts.map((p) => (
+          <span key={p.name} style={{ width: `${(p.n / Math.max(1, lines)) * 100}%`, background: p.color }} />
+        ))}
+      </span>
+      {agents.length ? `${agents.map((a) => a.name).join(", ")} wrote ${Math.round((agents.reduce((n, a) => n + a.n, 0) / Math.max(1, lines)) * 100)}%` : "Who & why"}
+    </button>
+  );
+}
+
+/** The line above a block of code: who wrote it, in which task, meaning to do what. */
+function WhyRow({ yard, span }: { yard: string; span: Span }) {
+  const c = span.change;
+  return (
+    <div className="flex items-center gap-2 border-y border-line bg-surface-2 px-3 py-1.5 font-sans text-xs text-body" title={span.intent?.why ?? undefined}>
+      {span.agent ? (
+        <>
+          <AgentBadge agent={{ id: span.agent, name: span.agent, initials: initialsFor(span.agent), color: span.color ?? "#888888" }} size={16} />
+          <span className="font-medium text-fg">{span.agent}</span>
+          <span>wrote this in</span>
+        </>
+      ) : (
+        <span>{c ? "From" : "Older than the log"}</span>
+      )}
+      {c && <ChangeLine yard={yard} change={{ ...c, agents: [] }} className="font-medium" />}
+      {span.intent && <span className="min-w-0 truncate">— {span.intent.summary}</span>}
+      {c && <span className="ml-auto shrink-0 text-muted">{ago(c.at)}</span>}
+    </div>
+  );
+}
+
 function FileView({ yard, file }: { yard: string; file: CodeFile }) {
   const { mode } = useTheme();
   const markdown = /\.(md|markdown)$/i.test(file.path);
   const [preview, setPreview] = useState(markdown);
   const lines = file.text?.split("\n").length ?? 0;
+  const code = file.text !== null && !file.binary;
+  const why = useQuery({ ...codeWhyQuery(yard, file.path), enabled: code });
+  const [explain, setExplain] = useState(false);
+  const spans = why.data?.spans ?? [];
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface-2 px-5 py-3 text-[13px] text-body">
@@ -157,6 +214,7 @@ function FileView({ yard, file }: { yard: string; file: CodeFile }) {
             <span className="shrink-0 text-muted">{ago(file.last.at)}</span>
           </span>
         )}
+        {spans.length > 0 && <Authorship spans={spans} lines={why.data!.lines} on={explain} toggle={() => (setExplain(!explain), setPreview(false))} />}
         {markdown && file.text !== null && (
           <span className="flex rounded-md ring-1 ring-line">
             {(["Preview", "Code"] as const).map((v) => (
@@ -179,7 +237,12 @@ function FileView({ yard, file }: { yard: string; file: CodeFile }) {
         </Markdown>
       ) : (
         <div className="[--diffs-dark-bg:var(--color-surface)] [--diffs-font-fallback:ui-monospace,monospace] [--diffs-font-family:var(--font-mono)] [--diffs-light-bg:var(--color-surface)]">
-          <File file={{ name: file.path, contents: file.text }} options={{ themeType: mode, overflow: "scroll" }} />
+          <File<Span>
+            file={{ name: file.path, contents: file.text }}
+            options={{ themeType: mode, overflow: "scroll" }}
+            lineAnnotations={explain ? spans.map((s) => ({ lineNumber: s.start, metadata: s })) : []}
+            renderAnnotation={(a) => <WhyRow yard={yard} span={a.metadata} />}
+          />
         </div>
       )}
     </Card>

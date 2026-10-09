@@ -242,6 +242,12 @@ async function main() {
   const sha = await g.commitAndPush("notes");
   check(/^[0-9a-f]{40}$/.test(sha), "plain git push with the scoped token");
 
+  // Who wrote each line of the base, and why: the seed's assembled decision credits its agents.
+  const why = await api<{ spans: { agent: string | null; intent: { summary: string } | null; change: { task: { id: string } | null } | null }[] }>(
+    `/yards/${yardId}/code/why?path=README.md`,
+  );
+  check(why.spans.some((s) => s.agent && s.intent && s.change?.task), `code_why credits lines to an agent and its intent (${why.spans.filter((s) => s.agent).map((s) => s.agent).join(", ")})`);
+
   await oauthChecks(t2.task.id);
 
   await autopilotChecks();

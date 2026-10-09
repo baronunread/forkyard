@@ -114,3 +114,18 @@ export function countChanges(hunks: Hunk[]): { additions: number; deletions: num
     }
   return { additions, deletions };
 }
+
+/**
+ * Where line `q` (0-based) of a file's new version came from, given the context-free hunks from
+ * its previous version: "added" when this change wrote it, else its line number before.
+ */
+export function previousLine(hunks: Hunk[], q: number): number | "added" {
+  let delta = 0;
+  for (const h of hunks) {
+    const start = Math.max(0, h.newStart - 1);
+    const end = start + h.newLines;
+    if (q >= start && q < end) return "added";
+    if (end <= q) delta += h.newLines - h.oldLines;
+  }
+  return q - delta;
+}

@@ -118,6 +118,9 @@ export const api = new Hono<HonoEnv>()
   .get("/yards/:yard/code/file", zValidator("param", yardParam), zValidator("query", z.object({ path: z.string().min(1).max(1000) })), async (c) =>
     c.json(await code.codeFile(c.env, c.get("principal"), c.req.valid("param").yard, c.req.valid("query").path.replace(/^\/+/, ""))),
   )
+  .get("/yards/:yard/code/why", zValidator("param", yardParam), zValidator("query", z.object({ path: z.string().min(1).max(1000) })), async (c) =>
+    c.json(await code.codeWhy(c.env, c.get("principal"), c.req.valid("param").yard, c.req.valid("query").path.replace(/^\/+/, ""))),
+  )
   .get("/yards/:yard/code/log", zValidator("param", yardParam), async (c) => c.json(await code.codeLog(c.env, c.get("principal"), c.req.valid("param").yard)))
   .get("/yards/:yard/base", zValidator("param", yardParam), async (c) =>
     c.json(await svc.yardBaseLog(c.env, c.get("principal"), c.req.valid("param").yard)),

@@ -245,6 +245,8 @@ export const AssembledFile = z.object({
   status: FileStatus,
   contents: z.string().nullable(),
   fromAgents: z.array(Slug),
+  /** Assembled from several agents: who wrote each line of `contents` (null: unchanged from base). */
+  lineAgents: z.array(Slug.nullable()).optional(),
 });
 export type AssembledFile = z.infer<typeof AssembledFile>;
 

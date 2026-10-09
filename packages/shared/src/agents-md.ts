@@ -13,6 +13,7 @@ export const MCP_TOOLS = [
   ["release_paths", "Drop claims you no longer need."],
   ["intent_record", "Record what you are doing and why. Attached to your next push."],
   ["events_since", "Replay the yard event log from an offset."],
+  ["code_why", "Why is this code here? For a file on the base (optionally lines from-to): which task and agent wrote each part, and the intent they recorded. Read it before rewriting code you didn't write."],
   ["compare_forks", "Structured diff summary across all forks of a task (optionally one file in detail)."],
   ["review_get", "Review score, checks and comments for a fork."],
   ["ask_human", "Blocked on something only a person can settle (a missing secret, an ambiguous requirement, a product call)? Ask. Keep working on anything else; the answer arrives as an ask.answered event and via ask_status."],

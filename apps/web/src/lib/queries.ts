@@ -106,6 +106,10 @@ export const codeQuery = (yard: string, path: string) =>
     },
   });
 
+/** Who wrote each part of a file on the base, and why. */
+export const codeWhyQuery = (yard: string, path: string) =>
+  queryOptions({ queryKey: ["yard", yard, "code-why", path], queryFn: () => call(yardRoute.code.why.$get({ param: { yard }, query: { path } })) });
+
 export const codeLogQuery = (yard: string) =>
   queryOptions({ queryKey: ["yard", yard, "log"], queryFn: () => call(yardRoute.code.log.$get({ param: { yard } })) });
 
