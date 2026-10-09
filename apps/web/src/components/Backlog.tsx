@@ -32,8 +32,21 @@ export function Backlog({ yard, full = false }: { yard: string; full?: boolean }
     if (wasPulling.current && !pulling) setArrived(true);
     wasPulling.current = !!pulling;
   }, [pulling]);
-  const waiting = (items.data?.items ?? []).filter((i) => i.status === "open");
-  const shown = all || full ? waiting : waiting.slice(0, 8);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState<"open" | "started" | "done" | "all">("open");
+  const [label, setLabel] = useState<string | null>(null);
+  const everything = items.data?.items ?? [];
+  const waiting = everything.filter((i) => i.status === "open");
+  // ponytail: filtered in the browser; fine for a few thousand items, move to SQL (FTS5) past that.
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matching = everything.filter(
+    (i) =>
+      (status === "all" || i.status === status) &&
+      (!label || i.labels.includes(label)) &&
+      words.every((w) => `#${i.id} ${i.title} ${i.body} ${i.author} ${i.labels.join(" ")}`.toLowerCase().includes(w)),
+  );
+  const counts = { open: waiting.length, started: everything.filter((i) => i.status === "started").length, done: everything.filter((i) => i.status === "done").length, all: everything.length };
+  const shown = full ? matching : all ? waiting : waiting.slice(0, 8);
 
   return (
     <section className={full ? "max-w-4xl" : "mt-10"} aria-label="Backlog">
@@ -53,7 +66,38 @@ export function Backlog({ yard, full = false }: { yard: string; full?: boolean }
           </Button>
         </div>
       </div>
-      {waiting.length ? (
+      {full && everything.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search title, text, author, label or #number"
+            aria-label="Search the backlog"
+            className="h-9 min-w-60 flex-1 rounded-md bg-surface px-3 text-[14px] text-fg ring-1 ring-line outline-none placeholder:text-muted focus:ring-link"
+          />
+          <div className="flex rounded-md ring-1 ring-line" role="group" aria-label="Status">
+            {(["open", "started", "done", "all"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setStatus(v)}
+                aria-pressed={status === v}
+                className={cx("h-9 px-3 text-[13px] capitalize", status === v ? "bg-selected font-medium text-fg" : "text-body hover:text-fg")}
+              >
+                {v} <span className="text-muted tabular-nums">{counts[v]}</span>
+              </button>
+            ))}
+          </div>
+          {label && (
+            <button onClick={() => setLabel(null)} className="h-7 rounded-full px-2.5 text-xs ring-1 ring-line hover:bg-hover">
+              {label} ✕
+            </button>
+          )}
+        </div>
+      )}
+      {full && everything.length > 0 && !shown.length ? (
+        <Card className="px-5 py-4 text-[14px] text-body">Nothing matches.</Card>
+      ) : shown.length ? (
         <Card className="divide-y divide-line overflow-hidden">
           {shown.map((i, n) => (
             <Link
@@ -69,10 +113,18 @@ export function Backlog({ yard, full = false }: { yard: string; full?: boolean }
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-body">
                   <span>{i.author}</span>
                   {i.labels.slice(0, 3).map((l) => (
-                    <span key={l} className="rounded-full px-2 text-xs ring-1 ring-line">
+                    <button
+                      key={l}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setLabel(l);
+                      }}
+                      className={cx("rounded-full px-2 text-xs ring-1 ring-line hover:bg-hover", label === l && "bg-selected")}
+                    >
                       {l}
-                    </span>
+                    </button>
                   ))}
+                  {i.status !== "open" && <span className="text-xs text-muted">{i.status}</span>}
                   {i.comments > 0 && (
                     <span className="inline-flex items-center gap-1 text-muted">
                       <ChatCircle /> {i.comments}
