@@ -8,13 +8,14 @@ import {
   ImportIssuesInput,
   StartBacklogInput,
   CreateYardInput,
+  Slug,
   DecideInput,
   IntentInput,
   type Workspace,
 } from "@forkyard/shared";
 import { Hono } from "hono";
 import { z } from "zod";
-import { AuthError, authenticate, devMode, isMember, type Principal } from "./auth";
+import { assertPerson, AuthError, authenticate, devMode, isMember, type Principal } from "./auth";
 import { githubAccessToken, ME, origin, recordSeatChoice, sessionFor } from "./better-auth";
 import * as chatgpt from "./chatgpt";
 import type { Env } from "./env";
@@ -51,6 +52,29 @@ export const api = new Hono<HonoEnv>()
     });
   })
 
+  // Your public GitHub repos, for "import a repo" when creating a yard. ponytail: public only until
+  // sign-in asks for the repo scope (#14).
+  .get("/me/github/repos", async (c) => {
+    const token = await githubTokenOf(c.env, c.get("principal"), c.req.raw);
+    if (!token) return c.json({ connected: false, repos: [] });
+    const res = await fetch("https://api.github.com/user/repos?per_page=100&sort=pushed&visibility=public", {
+      headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "User-Agent": "forkyard", "X-GitHub-Api-Version": "2022-11-28" },
+    });
+    if (!res.ok) return c.json({ connected: true, repos: [] });
+    const repos = (await res.json()) as { full_name: string; name: string; clone_url: string; description: string | null; pushed_at: string; private: boolean }[];
+    return c.json({
+      connected: true,
+      repos: repos.filter((r) => !r.private).map((r) => ({ fullName: r.full_name, name: r.name, cloneUrl: r.clone_url, description: r.description, pushedAt: r.pushed_at })),
+    });
+  })
+  // Is this yard name free? (The create call checks again.)
+  .get("/yard-names/:id", zValidator("query", z.object({ name: z.string().max(80).default("") })), async (c) => {
+    assertPerson(c.get("principal"));
+    const parsed = Slug.safeParse(c.req.param("id"));
+    if (!parsed.success) return c.json({ available: false, reason: parsed.error.issues[0]?.message ?? "invalid name" });
+    const taken = await svc.yardNameTaken(c.env, parsed.data, c.req.valid("query").name);
+    return c.json({ available: !taken, reason: taken });
+  })
   .get("/me/limits", async (c) => c.json(await limitsReport(c.env, c.get("principal"))))
 
   // ── your own model subscription (ChatGPT, through pi-ai), used for reviews in yards you own ──

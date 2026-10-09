@@ -1,12 +1,12 @@
-import { ClipboardText, Dialog, Input, InputArea } from "@cloudflare/kumo";
+import { ClipboardText, Dialog, Input, InputArea, Select } from "@cloudflare/kumo";
 import { useForm } from "@tanstack/react-form";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import { call, client, yardRoute, type CreatedTask } from "../lib/api";
 import { toastError, toasts } from "../lib/toast";
-import { Button } from "./ui";
+import { Button, cx } from "./ui";
 
 /** First validation message of a TanStack Form field, if any. */
 function firstError(errors: unknown[]): string | undefined {
@@ -15,101 +15,154 @@ function firstError(errors: unknown[]): string | undefined {
   return typeof e === "string" ? e : ((e as { message?: string }).message ?? String(e));
 }
 
-const YardForm = z.object({
-  id: z
-    .string()
-    .min(2, "At least 2 characters")
-    .max(40)
-    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Lowercase letters, digits, single dashes"),
-  name: z.string().max(80),
-  importUrl: z.union([z.literal(""), z.url("Must be a URL")]),
-  preview: z.string(),
-});
+/** A yard's address from its name: "My Project!" → "my-project". */
+export function yardSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "");
+}
 
+/** The value, once it has stopped changing for `ms`. */
+function useSettled<T>(value: T, ms = 250): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
+
+/**
+ * A yard needs a name, nothing else: its address follows from the name, and it starts from a
+ * README. Under Advanced, a person signed in with GitHub can start it from one of their repos.
+ */
 export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o: boolean) => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [repo, setRepo] = useState<string | null>(null);
+  const slug = yardSlug(name);
+  const settledName = useSettled(name.trim());
+  const settled = yardSlug(settledName);
+  const check = useQuery({
+    queryKey: ["yard-name", settled, settledName.toLowerCase()],
+    queryFn: () => call(client["yard-names"][":id"].$get({ param: { id: settled }, query: { name: settledName } })),
+    enabled: open && settled.length >= 2,
+    staleTime: 5_000,
+  });
+  const limits = useQuery({ queryKey: ["me", "limits"], queryFn: () => call(client.me.limits.$get()), enabled: open });
+  const repos = useQuery({ queryKey: ["me", "github", "repos"], queryFn: () => call(client.me.github.repos.$get()), enabled: open, staleTime: 60_000 });
+  const yardsLimit = limits.data?.limits.find((l) => l.key === "yards");
+  const atLimit = !!yardsLimit && yardsLimit.limit !== null && yardsLimit.used !== null && yardsLimit.used >= yardsLimit.limit;
+  const picked = repos.data?.repos.find((r) => r.fullName === repo) ?? null;
+
+  const reset = () => {
+    setName("");
+    setRepo(null);
+  };
   const create = useMutation({
-    mutationFn: (v: z.infer<typeof YardForm>) =>
-      call(
-        client.yards.$post({
-          json: { id: v.id, name: v.name || undefined, importUrl: v.importUrl || undefined, previewUrlTemplate: v.preview || null, jurisdiction: "default" },
-        }),
-      ),
+    mutationFn: () => call(client.yards.$post({ json: { id: slug, name: name.trim(), importUrl: picked?.cloneUrl, jurisdiction: "default" } })),
     onSuccess: async (y) => {
-      toasts.add({ title: "Yard created", description: y.id, variant: "success" });
+      toasts.add({ title: "Yard created", description: y.name, variant: "success" });
       await qc.invalidateQueries({ queryKey: ["yards"] });
+      void qc.invalidateQueries({ queryKey: ["me", "limits"] });
       setOpen(false);
-      form.reset();
+      reset();
       void navigate({ to: "/y/$yard", params: { yard: y.id } });
     },
     onError: (e) => toastError(e, "Could not create yard"),
   });
-  const form = useForm({
-    defaultValues: { id: "", name: "", importUrl: "", preview: "" },
-    validators: { onChange: YardForm },
-    onSubmit: ({ value }) => create.mutateAsync(value).catch(() => undefined),
-  });
+
+  const fresh = settledName === name.trim() && !check.isFetching;
+  const status =
+    slug.length < 2
+      ? name.trim()
+        ? { tone: "bad", text: "Use at least two letters or digits" }
+        : null
+      : !fresh || !check.data
+        ? { tone: "muted", text: `/y/${slug}` }
+        : check.data.available
+          ? { tone: "good", text: `/y/${slug} is free` }
+          : {
+              tone: "bad",
+              text:
+                check.data.reason === "address"
+                  ? `/y/${slug} is taken; try another name`
+                  : check.data.reason === "name"
+                    ? `There's already a yard called "${name.trim()}"`
+                    : (check.data.reason ?? "Not a valid name"),
+            };
+  const ready = fresh && !!check.data?.available && !atLimit && !create.isPending;
 
   return (
-    <Dialog.Root open={open} onOpenChange={setOpen}>
-      <Dialog className="p-6" size="lg">
+    <Dialog.Root
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) reset();
+      }}
+    >
+      <Dialog className="p-6" size="base">
         <form
-          className="space-y-3"
+          className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
-            void form.handleSubmit();
+            if (ready) create.mutate();
           }}
         >
           <Dialog.Title className="text-h2">New yard</Dialog.Title>
-          <Dialog.Description className="text-sm text-body">A yard is one base repo plus everything happening around it.</Dialog.Description>
-          <form.Field name="id">
-            {(f) => (
-              <Input
-                label="Id"
-                placeholder="my-project"
-                value={f.state.value}
-                onBlur={f.handleBlur}
-                onChange={(e) => f.handleChange(e.target.value.toLowerCase())}
-                description="Lowercase letters, digits, single dashes."
-                error={f.state.meta.isTouched ? firstError(f.state.meta.errors) : undefined}
-              />
-            )}
-          </form.Field>
-          <form.Field name="name">{(f) => <Input label="Name" placeholder="My project" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />}</form.Field>
-          <form.Field name="importUrl">
-            {(f) => (
-              <Input
-                label="Import from a public git URL (optional)"
-                placeholder="https://github.com/owner/repo.git"
-                value={f.state.value}
-                onBlur={f.handleBlur}
-                onChange={(e) => f.handleChange(e.target.value)}
-                description="Leave empty to start from a README."
-                error={f.state.meta.isTouched ? firstError(f.state.meta.errors) : undefined}
-              />
-            )}
-          </form.Field>
-          <form.Field name="preview">
-            {(f) => (
-              <Input
-                label="Preview URL template (optional)"
-                placeholder="https://{agent}-{task}-myapp.example.workers.dev"
-                value={f.state.value}
-                onChange={(e) => f.handleChange(e.target.value)}
-                description="Placeholders: {yard} {task} {agent} {fork}"
-              />
-            )}
-          </form.Field>
-          <div className="flex justify-end gap-2 pt-2">
+          <Dialog.Description className="text-sm text-body">A yard is one repo plus the agents working on it.</Dialog.Description>
+          <div>
+            <Input label="Name" placeholder="My project" autoFocus maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
+            <p
+              aria-live="polite"
+              className={cx("mt-1.5 min-h-5 text-[13px]", status?.tone === "good" ? "text-good" : status?.tone === "bad" ? "text-bad" : "text-muted")}
+            >
+              {status?.text}
+            </p>
+          </div>
+          {repos.data?.connected && repos.data.repos.length > 0 && (
+            <details className="group rounded-md text-sm" open={!!repo}>
+              <summary className="cursor-pointer select-none text-body hover:text-fg">Advanced</summary>
+              <div className="mt-3">
+                <Select
+                  label="Start from a GitHub repo"
+                  className="w-full"
+                  value={repo}
+                  placeholder="No, start from a README"
+                  onValueChange={(v) => {
+                    const r = repos.data.repos.find((x) => x.fullName === v) ?? null;
+                    setRepo(r?.fullName ?? null);
+                    if (r && !name.trim()) setName(r.name);
+                  }}
+                  items={Object.fromEntries(repos.data.repos.map((r) => [r.fullName, r.fullName]))}
+                />
+                {picked && (
+                  <p className="mt-1.5 text-[13px] text-body">
+                    Copies {picked.fullName} into Forkyard.{" "}
+                    <button type="button" className="underline underline-offset-2 hover:text-fg" onClick={() => setRepo(null)}>
+                      Start from a README instead
+                    </button>
+                  </p>
+                )}
+              </div>
+            </details>
+          )}
+          {atLimit && (
+            <p className="text-[13px] text-bad">
+              You've created {yardsLimit!.limit} yards, the most an account can have here.
+            </p>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
             <Button onClick={() => setOpen(false)}>Cancel</Button>
-            <form.Subscribe selector={(s) => [s.canSubmit, s.values.id.length >= 2] as const}>
-              {([canSubmit, hasId]) => (
-                <Button type="submit" variant="primary" loading={create.isPending} disabled={!canSubmit || !hasId}>
-                  Create yard
-                </Button>
-              )}
-            </form.Subscribe>
+            <Button type="submit" variant="primary" loading={create.isPending} disabled={!ready}>
+              {create.isPending ? (picked ? "Importing…" : "Creating…") : "Create yard"}
+            </Button>
           </div>
         </form>
       </Dialog>

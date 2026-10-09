@@ -149,10 +149,18 @@ export async function yardsList(env: Env, p: Principal): Promise<(Yard & { summa
   });
 }
 
+/** Why a yard can't take this address or name ("address" / "name"), or null when both are free. */
+export async function yardNameTaken(env: Env, id: string, name: string): Promise<"address" | "name" | null> {
+  const r = await env.DB.prepare("SELECT id = ? AS same_id FROM yards WHERE id = ? OR lower(name) = lower(?) LIMIT 1").bind(id, id, name.trim()).first<{ same_id: number }>();
+  return r ? (r.same_id ? "address" : "name") : null;
+}
+
 export async function yardCreate(env: Env, p: Principal, input: CreateYardInput): Promise<Yard> {
   assertPerson(p);
   await assertCanCreateYard(env, p);
-  if (await getYard(env.DB, input.id)) throw new ServiceError(409, `yard ${input.id} already exists`);
+  // Names are unique for people; scripts (admin) may reuse a demo name with a new address.
+  const taken = await yardNameTaken(env, input.id, p.kind === "user" ? (input.name ?? input.id) : "");
+  if (taken) throw new ServiceError(409, taken === "address" ? `yard ${input.id} already exists` : `a yard called "${input.name}" already exists`);
   const artifacts = getArtifacts(env, input.jurisdiction);
   const name = baseRepoName(input.id);
   if (input.importUrl) {
