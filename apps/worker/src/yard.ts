@@ -638,6 +638,8 @@ export class Yard extends DurableObject<Env> {
     const yard = await this.yard();
     const names = new Map((await listAgents(this.env.DB, yard.id, taskId)).map((a) => [a.id, a.name]));
     const intents = overlaps.length ? await latestIntents(this.env.DB, yard.id, taskId) : new Map<string, Intent>();
+    // This answer lists every overlap the agent is in, so anything waiting for it is old news.
+    this.takeNotes(taskId, agentId);
     return {
       claims: this.claimsFor(taskId).filter((c) => c.agentId === agentId),
       overlaps,
@@ -654,8 +656,21 @@ export class Yard extends DurableObject<Env> {
     return { released: target, overlaps: this.overlapsFor(taskId).filter((o) => o.active && o.agents.includes(agentId)) };
   }
 
-  /** `by`: the agent whose call caused this; it reads the overlap in its own answer. */
-  private async recomputeOverlaps(taskId: string, by: string | null = null): Promise<void> {
+  private overlapQueue: Promise<void> = Promise.resolve();
+
+  /**
+   * One recomputation at a time: two claims landing together would otherwise both read the
+   * overlap as new across their awaits, and announce it twice.
+   * ponytail: one queue for the whole yard; per-task queues if busy yards wait on each other.
+   * `by`: the agent whose call caused this; it reads the overlap in its own answer.
+   */
+  private recomputeOverlaps(taskId: string, by: string | null = null): Promise<void> {
+    const run = this.overlapQueue.then(() => this.recomputeOverlapsNow(taskId, by));
+    this.overlapQueue = run.catch(() => {});
+    return run;
+  }
+
+  private async recomputeOverlapsNow(taskId: string, by: string | null): Promise<void> {
     const yard = await this.yard();
     const agents = (await listAgents(this.env.DB, yard.id, taskId)).filter((a) => a.status !== "failed" && a.status !== "retired");
     const claims = this.claimsFor(taskId);

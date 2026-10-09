@@ -1,5 +1,12 @@
 /**
- * Demo seed: one yard, one task, four scripted agents working concurrently.
+ * Demo seed: the life of one feature in Forkyard, with four scripted agents.
+ *
+ *   1. A person files the work in the backlog and starts it: four agents, four forks.
+ *   2. Plans before code: each agent says what it'll do and where; agents planning the
+ *      same file hear about each other before either writes.
+ *   3. One agent asks the person a product question and keeps working meanwhile.
+ *   4. Pushes stream in and get reviewed; the person assembles the best parts.
+ *   5. Every merged line traces back to its agent and intent.
  *
  *   bun run seed                      # demo pacing (good for recording), decides at the end
  *   bun run seed --pace=fast          # same story, no pauses (--pace=slow doubles the pauses)
@@ -7,7 +14,7 @@
  *   bun run seed --yard=my-demo
  *
  * Each agent does what a real coding agent would: workspace_get over MCP,
- * claim_paths, intent_record, then plain `git clone` / `git push` with its
+ * plan (what, why, files), then plain `git clone` / `git push` with its
  * scoped token — in small commits so the UI shows diffs streaming in. Ada and
  * Cyd both claim `src/todos.ts` (the deliberate overlap); Cyd and Dex both
  * touch README.md (a second, change-level overlap).
@@ -88,6 +95,8 @@ test("adds a todo", () => {
 });
 `,
 };
+
+const chapter = (n: number, title: string) => console.log(`\n── ${n}. ${title} ${"─".repeat(Math.max(0, 60 - title.length))}\n`);
 
 const TASK = {
   title: "Validate todo titles",
@@ -307,28 +316,36 @@ async function main() {
   log("seed", `created yard ${yardId}`);
   await beat(1500);
 
+  chapter(1, "A person files the work and starts it");
+  const item = await api<{ id: string }>(`/yards/${yardId}/backlog`, { body: { title: TASK.title, body: TASK.brief } });
+  log("person", `filed backlog item #${item.id}: ${TASK.title}`);
+  await beat(2000);
   const t0 = performance.now();
   const created = await api<{
     task: { id: string };
     agents: { id: string; name: string }[];
     credentials: { agentId: string; apiKey: string }[];
-  }>(`/yards/${yardId}/tasks`, {
+  }>(`/yards/${yardId}/backlog/${item.id}/start`, {
     // The scripted story ends with a person assembling hunks, so autopilot stays off.
-    body: { title: TASK.title, brief: TASK.brief, autopilot: false, agents: AGENTS.map((a) => ({ name: a.name, harness: a.harness })) },
+    body: { autopilot: false, agents: AGENTS.map((a) => ({ name: a.name, harness: a.harness })) },
   });
   const taskId = created.task.id;
-  log("seed", `task "${TASK.title}" fanned out to ${created.agents.length} agents in ${Math.round(performance.now() - t0)} ms`);
-  console.log(`\n  Open ${BASE}/y/${yardId}/t/${taskId}  (or the Vite dev URL)\n`);
+  log("person", `started it with ${created.agents.map((a) => a.name).join(", ")}: one fork each, in ${Math.round(performance.now() - t0)} ms`);
+  console.log(`\n  Watch it live: ${BASE}/y/${yardId}/t/${taskId}\n`);
   await beat(2500);
 
   const work = join(tmpdir(), `forkyard-seed-${yardId}`);
   await rm(work, { recursive: true, force: true });
 
+  chapter(2, "Plans before code");
+  const mcps = new Map<string, Mcp>();
+  let asked: { id: string; options: { id: string; label: string }[] } | null = null;
   await Promise.all(
     AGENTS.map(async (script, i) => {
       const agentId = created.agents[i]!.id;
       const key = created.credentials.find((c) => c.agentId === agentId)!.apiKey;
       const mcp = new Mcp(key);
+      mcps.set(script.name, mcp);
       await beat(400 * i);
       const ws = await mcp.call<{ git: { remote: string; token: string } }>("workspace_get");
       log(script.name, `workspace ready → ${ws.data.git.remote}`);
@@ -337,14 +354,29 @@ async function main() {
         email: `${agentId}@agents.forkyard.dev`,
       });
       await beat(600 + 500 * i);
-      const claim = await mcp.call<{ overlaps: { path: string; agents: string[] }[] }>("claim_paths", { paths: script.claims });
-      log(script.name, `claimed ${script.claims.join(", ")}${claim.data.overlaps.length ? `  ⚠ overlaps: ${claim.data.overlaps.map((o) => o.path).join(", ")}` : ""}`);
-      await beat(700);
+      const warnings = (text: string) => text.split("\n").filter((l) => l.startsWith("⚠"));
       if (script.intentVia === "git") {
-        log(script.name, `intent travels in .forkyard/intent.md: ${script.intent.summary}`);
+        // Some harnesses only speak git: the claim goes over MCP, the intent rides in the commit.
+        const claim = await mcp.call("claim_paths", { paths: script.claims });
+        log(script.name, `claimed ${script.claims.join(", ")}; its intent travels in .forkyard/intent.md`);
+        for (const w of warnings(claim.text)) log(script.name, `  ${w}`);
       } else {
-        await mcp.call("intent_record", script.intent);
-        log(script.name, `intent: ${script.intent.summary}`);
+        const plan = await mcp.call("plan", { ...script.intent, files: script.claims });
+        log(script.name, `plans: ${script.intent.summary}  (${script.claims.join(", ")})`);
+        for (const w of warnings(plan.text)) log(script.name, `  ${w}`);
+      }
+      await beat(2500);
+      // Whoever planned first hears about later planners on their next call.
+      const heard = await mcp.call("events_since", { since: 0, limit: 1 });
+      for (const w of warnings(heard.text)) log(script.name, `  heard: ${w}`);
+      if (script.name === "Bash") {
+        await beat(800);
+        const ask = await mcp.call<{ id: string; options: { id: string; label: string }[] }>("ask_human", {
+          question: "Should a rejected title answer with a plain { error } body or RFC 9457 problem+json?",
+          options: ["Plain { error }", "problem+json"],
+        });
+        asked = ask.data;
+        log(script.name, `asked the person: plain { error } or problem+json? (keeps working meanwhile)`);
       }
       for (const step of script.steps) {
         await beat(step.wait);
@@ -355,6 +387,16 @@ async function main() {
     }),
   );
 
+  if (asked && decide) {
+    chapter(3, "The person answers the one question");
+    const a = asked as { id: string; options: { id: string; label: string }[] };
+    await api(`/yards/${yardId}/asks/${a.id}/answer`, { body: { optionId: a.options[0]!.id, text: "Keep it plain; we have no problem+json clients." } });
+    log("person", `answered Bash: ${a.options[0]!.label}`);
+    const status = await mcps.get("Bash")!.call<{ answer: string }>("ask_status", { askId: a.id });
+    log("Bash", `read the answer: ${status.data.answer}`);
+  }
+
+  chapter(4, "Reviews, then the person decides");
   log("seed", "all agents pushed; waiting for reviews…");
   const deadline = Date.now() + 60_000;
   for (;;) {
@@ -393,6 +435,20 @@ async function main() {
     body: { mode: "assemble", selections, message: "Validate todo titles (domain + HTTP) and document the API" },
   });
   log("seed", `decided: assembled ${preview.files.length} files from Ada, Bash and Dex → ${res.decision.resultCommit.slice(0, 7)}`);
+
+  chapter(5, "Who wrote this, and why");
+  for (const path of ["src/todos.ts", "src/server.ts"]) {
+    const why = await api<{ lines: number; spans: { start: number; end: number; agent: string | null; intent: { summary: string } | null }[] }>(
+      `/yards/${yardId}/code/why?path=${encodeURIComponent(path)}`,
+    );
+    const by = new Map<string, { n: number; intent: string | null }>();
+    for (const sp of why.spans.filter((x) => x.agent)) {
+      const e = by.get(sp.agent!) ?? { n: 0, intent: sp.intent?.summary ?? null };
+      e.n += sp.end - sp.start;
+      by.set(sp.agent!, e);
+    }
+    for (const [agent, e] of by) log("seed", `${path}: ${agent} wrote ${Math.round((e.n / why.lines) * 100)}%${e.intent ? ` (“${e.intent}”)` : ""}`);
+  }
   console.log(`\nDone. ${BASE}/y/${yardId}/t/${taskId}\n`);
 }
 
