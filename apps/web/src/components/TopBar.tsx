@@ -58,6 +58,12 @@ export function TopBar({ onPalette }: { onPalette: () => void }) {
         <span className="text-[15px] font-semibold tracking-[-0.3px] max-sm:hidden">Forkyard</span>
       </Link>
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 text-sm">
+        {params.yard && params.owner && (
+          <span className="flex shrink-0 items-center gap-1 max-sm:hidden">
+            <Slash />
+            <span className="px-2 py-1 text-body">{params.owner}</span>
+          </span>
+        )}
         {params.yard && (
           <span className="flex min-w-0 items-center gap-1">
             <Slash />

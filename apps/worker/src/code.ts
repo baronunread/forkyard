@@ -104,7 +104,7 @@ export async function codeTree(env: Env, p: Principal, yardId: string, path: str
   return openBase(env, p, yardId, async (repo, ref) => {
     const log = await changes(env, yardId, repo, ref);
     const head = log[0];
-    if (!head) return { path, entries: [] as CodeEntry[], readme: null, head: null };
+    if (!head) return { path, entries: [] as CodeEntry[], readme: null, head: null, here: null, commits: 0 };
     const tree = await treeAt(repo, head.meta.treeHash, path);
     if (!tree) throw new ServiceError(404, `no folder ${path} on ${ref}`);
     const raw = (await repo.readTree(tree)) ?? [];
@@ -113,16 +113,14 @@ export async function codeTree(env: Env, p: Principal, yardId: string, path: str
       .filter((e) => e.type !== "gitlink")
       .map((e) => ({ name: e.name, path: prefix + e.name, type: e.type === "tree" ? ("tree" as const) : ("blob" as const) }))
       .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "tree" ? -1 : 1));
-    const last = await lastTouched(
-      repo,
-      log,
-      entries.map((e) => e.path),
-    );
+    const last = await lastTouched(repo, log, [...entries.map((e) => e.path), ...(path ? [path] : [])]);
     const readmeEntry = raw.find((e) => e.type !== "tree" && README.test(e.name));
     const readmeBlob = readmeEntry ? await repo.readBlob(readmeEntry.hash) : null;
     const readme = readmeBlob && readmeBlob.size <= MAX_TEXT_BYTES ? { name: readmeEntry!.name, text: (await blobText(readmeBlob)).text } : null;
     const { meta: _m, ...headChange } = head;
-    return { path, entries: entries.map((e) => ({ ...e, last: last.get(e.path) ?? null })), readme, head: headChange, commits: log.length };
+    // The folder's own latest change (the repo's, at the root).
+    const here = path ? (last.get(path) ?? null) : headChange;
+    return { path, entries: entries.map((e) => ({ ...e, last: last.get(e.path) ?? null })), readme, head: headChange, here, commits: log.length };
   });
 }
 

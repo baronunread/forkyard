@@ -6,7 +6,7 @@ import { AppShell } from "../components/AppShell";
 import { BenchPage } from "../pages/BenchPage";
 import { Connect } from "../pages/Connect";
 import { Login } from "../pages/Login";
-import { Backlog } from "../components/Backlog";
+import { Backlog, BacklogItemPage } from "../components/Backlog";
 import { CodePage } from "../pages/CodePage";
 import { Home } from "../pages/Home";
 import { LogPage } from "../pages/LogPage";
@@ -126,6 +126,15 @@ const backlogRoute = createRoute({
   },
 });
 
+const backlogItemRoute = createRoute({
+  getParentRoute: () => yardRoute,
+  path: "backlog/$item",
+  component: function BacklogItemRouteView() {
+    const { item } = backlogItemRoute.useParams();
+    return <BacklogItemPage key={item} yard={useYard().yard} id={item} />;
+  },
+});
+
 const logRoute = createRoute({ getParentRoute: () => yardRoute, path: "log", component: LogPage });
 
 const taskRoute = createRoute({
@@ -149,7 +158,7 @@ const benchRoute = createRoute({ getParentRoute: () => appRoute, path: "/bench",
 
 const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: "/settings", component: SettingsPage });
 
-const routeTree = rootRoute.addChildren([loginRoute, connectRoute, appRoute.addChildren([indexRoute, yardRoute.addChildren([yardIndexRoute, codeRoute, backlogRoute, logRoute]), taskRoute, benchRoute, settingsRoute])]);
+const routeTree = rootRoute.addChildren([loginRoute, connectRoute, appRoute.addChildren([indexRoute, yardRoute.addChildren([yardIndexRoute, codeRoute, backlogRoute, backlogItemRoute, logRoute]), taskRoute, benchRoute, settingsRoute])]);
 
 export const router = createRouter({
   routeTree,

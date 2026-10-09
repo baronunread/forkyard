@@ -1,7 +1,7 @@
-import { Dialog, Input, Loader } from "@cloudflare/kumo";
-import { CaretRight, ChatCircle, GithubLogo, Plus } from "@phosphor-icons/react";
+import { Dialog, Empty, Input, Loader } from "@cloudflare/kumo";
+import { ArrowLeft, CaretRight, ChatCircle, GithubLogo, Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { call, yardRoute } from "../lib/api";
 import { ago } from "../lib/format";
@@ -21,7 +21,6 @@ export function Backlog({ yard, full = false }: { yard: string; full?: boolean }
     // The live socket refreshes it when the import ends; polling is the fallback.
     refetchInterval: (q) => (q.state.data?.importing ? 5_000 : false),
   });
-  const [open, setOpen] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [all, setAll] = useState(false);
   const now = Date.now();
@@ -57,9 +56,10 @@ export function Backlog({ yard, full = false }: { yard: string; full?: boolean }
       {waiting.length ? (
         <Card className="divide-y divide-line overflow-hidden">
           {shown.map((i, n) => (
-            <button
+            <Link
               key={i.id}
-              onClick={() => setOpen(i.id)}
+              to="/$owner/$yard/backlog/$item"
+              params={{ ...yardParams(yard), item: i.id }}
               className={cx("flex w-full items-center gap-4 px-5 py-3.5 text-left hover:bg-hover", arrived && "animate-fade-in")}
               style={arrived ? { animationDelay: `${n * 40}ms` } : undefined}
             >
@@ -82,7 +82,7 @@ export function Backlog({ yard, full = false }: { yard: string; full?: boolean }
               </div>
               <span className="w-16 shrink-0 text-right text-xs text-muted">{ago(i.createdAt, now)}</span>
               <CaretRight className="shrink-0 text-muted" />
-            </button>
+            </Link>
           ))}
         </Card>
       ) : (
@@ -98,96 +98,96 @@ export function Backlog({ yard, full = false }: { yard: string; full?: boolean }
           )}
         </Card>
       )}
-      <ItemDialog yard={yard} id={open} close={() => setOpen(null)} />
       <ImportDialog yard={yard} open={importing} setOpen={setImporting} />
     </section>
   );
 }
 
-function ItemDialog({ yard, id, close }: { yard: string; id: string | null; close: () => void }) {
+/** One backlog item as a page with its own link: the description and discussion, and a box to start it. */
+export function BacklogItemPage({ yard, id }: { yard: string; id: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [agents, setAgents] = useState(3);
+  const params = yardParams(yard);
   const item = useQuery({
     queryKey: ["yard", yard, "backlog", id],
-    queryFn: () => call(yardRoute.backlog[":item"].$get({ param: { yard, item: id! } })),
-    enabled: !!id,
+    queryFn: () => call(yardRoute.backlog[":item"].$get({ param: { yard, item: id } })),
   });
   const start = useMutation({
     mutationFn: () =>
       call(
         yardRoute.backlog[":item"].start.$post({
-          param: { yard, item: id! },
+          param: { yard, item: id },
           json: { autopilot: true, agents: Array.from({ length: agents }, (_, i) => ({ name: ["Ada", "Bash", "Cyd", "Dex", "Eli"][i] ?? `Agent ${i + 1}`, harness: "pi", role: "agent" as const, runner: "cloud" as const })) },
         }),
       ),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ["yard", yard] });
-      close();
-      void navigate({ to: "/$owner/$yard/t/$task", params: { ...yardParams(yard), task: r.task.id } });
+      void navigate({ to: "/$owner/$yard/t/$task", params: { ...params, task: r.task.id } });
     },
     onError: (e) => toastError(e, "Could not start"),
   });
+  if (item.error) return <Empty title="Not in the backlog" description={item.error.message} />;
   const d = item.data;
+  if (!d) return <Loader />;
+  const base = `/${params.owner}/${params.yard}/code/`;
 
   return (
-    <Dialog.Root open={!!id} onOpenChange={(o) => !o && close()}>
-      <Dialog className="max-h-[85vh] overflow-y-auto p-6" size="xl">
-        {!d ? (
-          <Loader />
-        ) : (
-          <div className="space-y-5">
-            <div>
-              <Dialog.Title className="text-h2">
-                <span className="mr-2 text-muted">#{d.id}</span>
-                {d.title}
-              </Dialog.Title>
-              <Dialog.Description className="mt-1 text-[13px] text-body">
-                {d.author} · {new Date(d.createdAt).toLocaleDateString()}
-                {d.sourceRef && <> · imported from GitHub {d.sourceRef}</>}
-              </Dialog.Description>
-            </div>
-            <Markdown>{d.body || "_No description._"}</Markdown>
-            {d.thread.length > 0 && (
-              <div className="space-y-3 border-t border-line pt-4">
-                {d.thread.map((c, i) => (
-                  <Card key={i} className="p-4">
-                    <div className="mb-2 text-[13px] text-body">
-                      <span className="font-medium text-fg">{c.author}</span> · {new Date(c.createdAt).toLocaleDateString()}
-                    </div>
-                    <Markdown>{c.body}</Markdown>
-                  </Card>
-                ))}
-              </div>
-            )}
-            <div className={cx("flex flex-wrap items-end justify-end gap-3 border-t border-line pt-4")}>
-              {d.status === "open" ? (
-                <>
-                  <Input
-                    label="Cloud agents"
-                    type="number"
-                    min={1}
-                    max={5}
-                    className="w-32"
-                    value={String(agents)}
-                    onChange={(e) => setAgents(Math.max(1, Math.min(5, Number(e.target.value) || 1)))}
-                  />
-                  <Button variant="primary" icon={<Plus />} loading={start.isPending} onClick={() => start.mutate()}>
-                    Start with {agents} agent{agents === 1 ? "" : "s"}
-                  </Button>
-                </>
-              ) : (
-                d.taskId && (
-                  <Button onClick={() => (close(), void navigate({ to: "/$owner/$yard/t/$task", params: { ...yardParams(yard), task: d.taskId! } }))}>
-                    {d.status === "done" ? "Done: open the task" : "Open the task"}
-                  </Button>
-                )
-              )}
-            </div>
-          </div>
+    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <article className="min-w-0">
+        <Link to="/$owner/$yard/backlog" params={params} className="inline-flex items-center gap-1 text-[13px] text-body hover:text-fg">
+          <ArrowLeft /> Backlog
+        </Link>
+        <h2 className="mt-3 text-h2">
+          {d.title} <span className="font-normal text-muted">#{d.id}</span>
+        </h2>
+        <p className="mt-1 text-[13px] text-body">
+          {d.author} · {new Date(d.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+          {d.sourceRef && <> · imported from GitHub {d.sourceRef}</>}
+        </p>
+        <Card className="mt-6 px-6 py-5">
+          <Markdown base={base}>{d.body || "_No description._"}</Markdown>
+        </Card>
+        {d.thread.length > 0 && (
+          <section className="mt-8 space-y-3" aria-label="Discussion">
+            <SectionTitle>Discussion</SectionTitle>
+            {d.thread.map((c, i) => (
+              <Card key={i} className="px-6 py-4">
+                <div className="mb-2 text-[13px] text-body">
+                  <span className="font-medium text-fg">{c.author}</span> · {new Date(c.createdAt).toLocaleDateString()}
+                </div>
+                <Markdown base={base}>{c.body}</Markdown>
+              </Card>
+            ))}
+          </section>
         )}
-      </Dialog>
-    </Dialog.Root>
+      </article>
+      <aside className="lg:pt-9">
+        <Card className="space-y-4 p-5">
+          {d.status === "open" ? (
+            <>
+              <div>
+                <SectionTitle>Start it</SectionTitle>
+                <p className="mt-1 text-[13px] text-body">Cloud agents work on it in parallel, each in its own fork. Autopilot ships the best result.</p>
+              </div>
+              <Input label="Cloud agents" type="number" min={1} max={5} value={String(agents)} onChange={(e) => setAgents(Math.max(1, Math.min(5, Number(e.target.value) || 1)))} />
+              <Button variant="primary" className="w-full" icon={<Plus />} loading={start.isPending} onClick={() => start.mutate()}>
+                Start with {agents} agent{agents === 1 ? "" : "s"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <SectionTitle>{d.status === "done" ? "Shipped" : "In progress"}</SectionTitle>
+              {d.taskId && (
+                <Link to="/$owner/$yard/t/$task" params={{ ...params, task: d.taskId }} className="block text-[14px] text-link hover:underline">
+                  Open the task
+                </Link>
+              )}
+            </>
+          )}
+        </Card>
+      </aside>
+    </div>
   );
 }
 

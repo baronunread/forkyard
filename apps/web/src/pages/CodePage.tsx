@@ -96,14 +96,16 @@ function Folder_({ yard, tree }: { yard: string; tree: CodeTree }) {
   return (
     <div className="space-y-6">
       <Card className="overflow-hidden">
-        {tree.head && !tree.path && (
+        {tree.here && (
           <div className="flex items-center gap-3 border-b border-line bg-surface-2 px-5 py-3 text-[13px] text-body">
             <span className="shrink-0 text-muted">Latest</span>
-            <ChangeLine yard={yard} change={tree.head} className="flex-1" />
-            <span className="shrink-0 text-muted">{ago(tree.head.at, now)}</span>
-            <Link to="/$owner/$yard/log" params={params} className="shrink-0 hover:text-fg">
-              {tree.commits} {tree.commits === 1 ? "change" : "changes"}
-            </Link>
+            <ChangeLine yard={yard} change={tree.here} className="flex-1" />
+            <span className="shrink-0 text-muted">{ago(tree.here.at, now)}</span>
+            {!tree.path && (
+              <Link to="/$owner/$yard/log" params={params} className="shrink-0 hover:text-fg">
+                {tree.commits} {tree.commits === 1 ? "change" : "changes"}
+              </Link>
+            )}
           </div>
         )}
         <div className="divide-y divide-line">
