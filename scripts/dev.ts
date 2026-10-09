@@ -87,6 +87,7 @@ start("worker", 33, bin("wrangler", "apps/worker"), [
   // wrangler dev rewrites Origin and the request URL to the upstream protocol; keep them https.
   ...(portless ? ["--upstream-protocol", "https"] : []),
   "--persist-to", "../../.wrangler/state",
+  "--env-file", "local.env",
   ...Object.entries(vars).flatMap(([k, v]) => ["--var", `${k}:${v}`]),
 ], { cwd: "apps/worker" });
 start("web", 36, bin("vite", "apps/web"), ["--port", String(web), "--strictPort", "--host", "127.0.0.1"], { cwd: "apps/web", env: { FORKYARD_WORKER: `http://127.0.0.1:${worker}` } });

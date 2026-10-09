@@ -8,7 +8,7 @@
     "./types": "./types/api.d.ts"
   },
   "scripts": {
-    "dev": "wrangler dev --port 8787 --persist-to ../../.wrangler/state",
+    "dev": "wrangler dev --port 8787 --persist-to ../../.wrangler/state --env-file local.env",
     "deploy": "wrangler deploy --env production",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

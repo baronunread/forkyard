@@ -19,19 +19,9 @@
     "ARTIFACTS_NAMESPACE": "local",
     "LOCAL_GIT_ORIGIN": "http://localhost:8787",
     "FORK_TTL_HOURS": "24",
-    "TOKEN_TTL_SECONDS": "14400",
-    // Short settle time so the autopilot is visible in a local demo (default 15 s).
-    "AUTOPILOT_QUIET_MS": "4000",
-    // Local dev only. Sign-in runs against emulate.dev (`bun run dev` starts it with
-    // emulate.config.yaml), so these are emulator credentials, not real ones.
-    "FORKYARD_DEV": "true",
-    "BETTER_AUTH_SECRET": "local-dev-secret-not-for-production-0123456789",
-    "EMULATE_GITHUB_URL": "http://localhost:4001",
-    "EMULATE_GOOGLE_URL": "http://localhost:4002",
-    "GITHUB_CLIENT_ID": "forkyard-local",
-    "GITHUB_CLIENT_SECRET": "forkyard-local-secret",
-    "GOOGLE_CLIENT_ID": "forkyard-local.apps.googleusercontent.com",
-    "GOOGLE_CLIENT_SECRET": "forkyard-local-secret"
+    "TOKEN_TTL_SECONDS": "14400"
+    // Local-only settings (dev mode, emulator credentials) live in local.env, which only
+    // `wrangler dev --env-file local.env` loads, so none of them can reach production.
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "forkyard", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
