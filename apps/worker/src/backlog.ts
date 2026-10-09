@@ -35,10 +35,15 @@ function toItem(r: Row): BacklogItem {
 
 const SELECT = `SELECT b.*, (SELECT COUNT(*) FROM backlog_comments c WHERE c.yard_id = b.yard_id AND c.item_id = b.id) AS comments FROM backlog_items b`;
 
-export async function backlogList(env: Env, p: Principal, yardId: string): Promise<BacklogItem[]> {
+/** The backlog, and the GitHub repo whose issues are still coming in (or null). */
+export async function backlogList(env: Env, p: Principal, yardId: string): Promise<{ items: BacklogItem[]; importing: string | null }> {
   await assertYard(env, p, yardId);
-  const { results } = await env.DB.prepare(`${SELECT} WHERE b.yard_id = ? ORDER BY b.created_at DESC`).bind(yardId).all<Row>();
-  return results.map(toItem);
+  const [items, yard] = await env.DB.batch<Row>([
+    env.DB.prepare(`${SELECT} WHERE b.yard_id = ? ORDER BY b.created_at DESC`).bind(yardId),
+    env.DB.prepare("SELECT importing_issues FROM yards WHERE id = ?").bind(yardId),
+  ]);
+  const importing = yard!.results[0]?.importing_issues;
+  return { items: items!.results.map(toItem), importing: importing ? String(importing) : null };
 }
 
 export async function backlogGet(env: Env, p: Principal, yardId: string, id: string): Promise<BacklogItem & { thread: BacklogComment[] }> {
@@ -193,6 +198,7 @@ export class IssueImportWorkflow extends WorkflowEntrypoint<Env, IssueImportPara
       result.error = err instanceof Error ? err.message : String(err);
     }
     await step.do("tell the yard", async () => {
+      await this.env.DB.prepare("UPDATE yards SET importing_issues = NULL WHERE id = ?").bind(yardId).run();
       // The yard may have been deleted meanwhile.
       await (await yardStubById(this.env, yardId))?.stub.append({ type: "backlog.imported", taskId: null, agentId: null, data: { repo, ...result } });
       return true;

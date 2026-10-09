@@ -35,6 +35,10 @@
   --text-stat--font-weight: 600;
 
   --animate-blink: blink 1.4s ease-in-out infinite;
+  --animate-fade-in: fade-in 0.35s ease-out both;
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+  }
   @keyframes blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.35; }

@@ -2,7 +2,7 @@ import { Dialog, Input, Loader } from "@cloudflare/kumo";
 import { CaretRight, ChatCircle, GithubLogo, Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { call, yardRoute } from "../lib/api";
 import { ago } from "../lib/format";
 import { toastError, toasts } from "../lib/toast";
@@ -15,12 +15,25 @@ import { yardParams } from "../lib/queries";
  * "Start" turns an item into a task with its body and discussion as the brief.
  */
 export function Backlog({ yard }: { yard: string }) {
-  const items = useQuery({ queryKey: ["yard", yard, "backlog"], queryFn: () => call(yardRoute.backlog.$get({ param: { yard } })) });
+  const items = useQuery({
+    queryKey: ["yard", yard, "backlog"],
+    queryFn: () => call(yardRoute.backlog.$get({ param: { yard } })),
+    // The live socket refreshes it when the import ends; polling is the fallback.
+    refetchInterval: (q) => (q.state.data?.importing ? 5_000 : false),
+  });
   const [open, setOpen] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [all, setAll] = useState(false);
   const now = Date.now();
-  const waiting = (items.data ?? []).filter((i) => i.status === "open");
+  const pulling = items.data?.importing ?? null;
+  // Issues that arrive while you watch the import fade in.
+  const wasPulling = useRef(false);
+  const [arrived, setArrived] = useState(false);
+  useEffect(() => {
+    if (wasPulling.current && !pulling) setArrived(true);
+    wasPulling.current = !!pulling;
+  }, [pulling]);
+  const waiting = (items.data?.items ?? []).filter((i) => i.status === "open");
   const shown = all ? waiting : waiting.slice(0, 8);
 
   return (
@@ -28,6 +41,7 @@ export function Backlog({ yard }: { yard: string }) {
       <div className="mb-3 flex items-center justify-between gap-3">
         <SectionTitle>
           Backlog{waiting.length ? <span className="ml-1.5 text-muted">{waiting.length}</span> : null}
+          {pulling && waiting.length > 0 && <Loader size="sm" className="ml-2 inline-block align-middle" />}
         </SectionTitle>
         <div className="flex items-center gap-3">
           {waiting.length > 8 && (
@@ -42,8 +56,13 @@ export function Backlog({ yard }: { yard: string }) {
       </div>
       {waiting.length ? (
         <Card className="divide-y divide-line overflow-hidden">
-          {shown.map((i) => (
-            <button key={i.id} onClick={() => setOpen(i.id)} className="flex w-full items-center gap-4 px-5 py-3.5 text-left hover:bg-hover">
+          {shown.map((i, n) => (
+            <button
+              key={i.id}
+              onClick={() => setOpen(i.id)}
+              className={cx("flex w-full items-center gap-4 px-5 py-3.5 text-left hover:bg-hover", arrived && "animate-fade-in")}
+              style={arrived ? { animationDelay: `${n * 40}ms` } : undefined}
+            >
               <span className="w-8 shrink-0 text-xs tabular-nums text-muted">#{i.id}</span>
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium">{i.title}</div>
@@ -67,7 +86,17 @@ export function Backlog({ yard }: { yard: string }) {
           ))}
         </Card>
       ) : (
-        <Card className="px-5 py-4 text-[14px] text-body">{items.isPending ? "Loading…" : "Nothing waiting. Import a repo's GitHub issues to fill it."}</Card>
+        <Card className="flex items-center gap-3 px-5 py-4 text-[14px] text-body">
+          {pulling ? (
+            <>
+              <Loader size="sm" /> Importing issues from {pulling}…
+            </>
+          ) : items.isPending ? (
+            "Loading…"
+          ) : (
+            "Nothing waiting. Import a repo's GitHub issues to fill it."
+          )}
+        </Card>
       )}
       <ItemDialog yard={yard} id={open} close={() => setOpen(null)} />
       <ImportDialog yard={yard} open={importing} setOpen={setImporting} />

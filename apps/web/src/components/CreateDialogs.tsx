@@ -60,7 +60,7 @@ export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o
   const create = useMutation({
     mutationFn: () => call(client.yards.$post({ json: { name: name.trim(), importUrl: picked?.cloneUrl, jurisdiction: "default" } })),
     onSuccess: async (y) => {
-      toasts.add({ title: "Yard created", description: y.name, variant: "success" });
+      toasts.add({ title: "Yard created", description: picked ? `Importing ${picked.fullName}'s open issues into the backlog…` : y.name, variant: "success" });
       await qc.invalidateQueries({ queryKey: ["yards"] });
       void qc.invalidateQueries({ queryKey: ["me", "limits"] });
       setOpen(false);
