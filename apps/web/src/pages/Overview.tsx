@@ -1,281 +1,59 @@
-import { ClipboardText, Empty, Loader } from "@cloudflare/kumo";
-import { CaretRight, Plus, Tray } from "@phosphor-icons/react";
+import { Loader } from "@cloudflare/kumo";
+import { CaretRight } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { useHotkeys } from "@tanstack/react-hotkeys";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { AskCard } from "../components/AskCard";
-import { Backlog } from "../components/Backlog";
-import { CreateTaskDialog, CreateYardDialog, DeleteYardDialog } from "../components/CreateDialogs";
+import { Markdown } from "../components/Markdown";
 import { Button, Card, cx, Dot, SectionTitle } from "../components/ui";
-import type { YardList, YardStatus } from "../lib/api";
-import { useCommands } from "../lib/commands";
+import type { YardStatus } from "../lib/api";
 import { ago } from "../lib/format";
-import { useYardSync } from "../lib/live";
 import { taskPhase, type Tone } from "../lib/phase";
-import { inboxQuery, yardQuery, yardsQuery, yardParams } from "../lib/queries";
-
-/**
- * Home. Agents do the work and autopilot merges it; this page answers two
- * questions at a glance: does anything need me, and is everything moving?
- *
- * Left: "Everything" plus each yard. Right: whatever is selected.
- */
-export function Overview({ yard }: { yard: string | null }) {
-  const yards = useQuery(yardsQuery);
-  const navigate = useNavigate();
-  const [newYard, setNewYard] = useState(false);
-  const list = yards.data ?? [];
-
-  // j / k move through Everything and the yards.
-  const stops = [null, ...list.map((y) => y.id)];
-  const step = (d: 1 | -1) => {
-    const i = stops.indexOf(yard);
-    const next = stops[(i + d + stops.length) % stops.length] ?? null;
-    void navigate(next ? { to: "/$owner/$yard", params: yardParams(next) } : { to: "/" });
-  };
-  useHotkeys([
-    { hotkey: "J", callback: () => step(1) },
-    { hotkey: "K", callback: () => step(-1) },
-  ]);
-  useCommands(
-    "overview",
-    [
-      { id: "new-yard", group: "Actions", title: "New yard", run: () => setNewYard(true) },
-      ...list.map((y) => ({ id: `yard-${y.id}`, group: "Yards", title: y.name, run: () => void navigate({ to: "/$owner/$yard", params: yardParams(y.id) }) })),
-    ],
-    [list],
-  );
-
-  return (
-    <div className="grid h-full min-h-0 grid-cols-[264px_minmax(0,1fr)] max-md:grid-cols-1">
-      <Rail yards={list} loading={yards.isPending} selected={yard} onNew={() => setNewYard(true)} />
-      <div className="min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
-        {yards.isPending ? (
-          <div className="p-10">
-            <Loader />
-          </div>
-        ) : !list.length ? (
-          <div className="mx-auto max-w-lg px-6 py-20">
-            <Empty title="No yards yet" description="A yard is one repo plus the agents working on it." />
-            <div className="mt-4 flex justify-center">
-              <Button variant="primary" icon={<Plus />} onClick={() => setNewYard(true)}>
-                New yard
-              </Button>
-            </div>
-          </div>
-        ) : yard ? (
-          <YardOverview key={yard} yard={yard} />
-        ) : (
-          <Everything yards={list} />
-        )}
-      </div>
-      <CreateYardDialog open={newYard} setOpen={setNewYard} />
-    </div>
-  );
-}
-
-// ── left ───────────────────────────────────────────────────────────────────
-
-function Rail({ yards, loading, selected, onNew }: { yards: YardList; loading: boolean; selected: string | null; onNew: () => void }) {
-  const [q, setQ] = useState("");
-  const shown = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return s ? yards.filter((y) => `${y.name} ${y.id}`.toLowerCase().includes(s)) : yards;
-  }, [yards, q]);
-  const needsYou = yards.reduce((n, y) => n + y.summary.needsYou, 0);
-  return (
-    <aside className="flex min-h-0 flex-col border-r border-line bg-surface max-md:hidden" aria-label="Yards">
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pt-4 pb-3">
-        <RailItem to={null} on={selected === null} label="Everything" icon={<Tray size={16} />} count={needsYou} />
-        <div className="mt-5 mb-1 flex items-center justify-between pr-1 pl-3">
-          <SectionTitle className="text-body">Yards</SectionTitle>
-          <Button size="icon" variant="ghost" icon={<Plus />} onClick={onNew} aria-label="New yard" />
-        </div>
-        {yards.length > 8 && (
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Filter"
-            aria-label="Filter yards"
-            className="mx-1 mb-1 h-8 w-[calc(100%-8px)] rounded-md bg-surface-2 px-2.5 text-[13px] text-fg ring-1 ring-line outline-none placeholder:text-muted focus:ring-link"
-          />
-        )}
-        {loading && (
-          <div className="p-3">
-            <Loader size="sm" />
-          </div>
-        )}
-        {shown.map((y) => (
-          <RailItem
-            key={y.id}
-            to={y.id}
-            on={y.id === selected}
-            label={y.name}
-            count={y.summary.needsYou}
-            busy={y.summary.activeAgents > 0}
-          />
-        ))}
-      </nav>
-      <div className="border-t border-line p-4">
-        <SectionTitle>Connect an agent</SectionTitle>
-        <p className="mt-1 mb-2 text-xs text-body">Add this MCP server to Claude Code, Codex or Cursor.</p>
-        <ClipboardText text={`${location.origin}/mcp`} />
-      </div>
-    </aside>
-  );
-}
-
-function RailItem({ to, on, label, icon, count, busy }: { to: string | null; on: boolean; label: string; icon?: React.ReactNode; count: number; busy?: boolean }) {
-  const cls = cx("flex h-9 items-center gap-2.5 rounded-md px-3 text-[14px]", on ? "bg-selected font-medium text-fg" : "text-body hover:bg-hover hover:text-fg");
-  const body = (
-    <>
-      {icon ?? <span title={busy ? "Agents working" : "Idle"}><Dot color={busy ? "var(--color-busy)" : "var(--color-line-strong)"} pulse={busy} /></span>}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {count > 0 && <NeedsBadge n={count} />}
-    </>
-  );
-  return to ? (
-    <Link to="/$owner/$yard" params={yardParams(to)} aria-current={on ? "page" : undefined} className={cls}>
-      {body}
-    </Link>
-  ) : (
-    <Link to="/" aria-current={on ? "page" : undefined} className={cls}>
-      {body}
-    </Link>
-  );
-}
-
-function NeedsBadge({ n }: { n: number }) {
-  return (
-    <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-overlap px-1.5 text-[11px] font-semibold text-white tabular-nums" title={`${n} waiting on you`}>
-      {n}
-    </span>
-  );
-}
-
-// ── right: everything ──────────────────────────────────────────────────────
-
-function Everything({ yards }: { yards: YardList }) {
-  const inbox = useQuery(inboxQuery);
-  const asks = inbox.data?.asks ?? [];
-  const agents = yards.reduce((n, y) => n + y.summary.activeAgents, 0);
-  const open = yards.reduce((n, y) => n + y.summary.openTasks, 0);
-  return (
-    <Page>
-      <h1 className="text-h1">{asks.length ? `${asks.length} ${asks.length === 1 ? "thing needs" : "things need"} you` : "Nothing needs you"}</h1>
-      <p className="mt-1.5 text-body">{agents ? `${agents} agents are working on ${open} ${open === 1 ? "task" : "tasks"} across ${yards.length} ${yards.length === 1 ? "yard" : "yards"}.` : "No agents are working right now."}</p>
-
-      {asks.length > 0 && (
-        <Section title="Needs you">
-          <div className="space-y-3">
-            {asks.map((a) => (
-              <AskCard key={a.id} ask={a} agent={a.agent} taskTitle={a.taskTitle} yardName={a.yardName} />
-            ))}
-          </div>
-        </Section>
-      )}
-
-      <Section title="Yards">
-        <Card className="divide-y divide-line overflow-hidden">
-          {yards.map((y) => (
-            <Link key={y.id} to="/$owner/$yard" params={yardParams(y.id)} className="flex items-center gap-4 px-5 py-4 hover:bg-hover">
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium">{y.name}</div>
-                <div className="mt-0.5 text-[13px] text-body">
-                  {y.summary.openTasks
-                    ? `${y.summary.openTasks} ${y.summary.openTasks === 1 ? "task" : "tasks"} in progress · ${y.summary.activeAgents} ${y.summary.activeAgents === 1 ? "agent" : "agents"}`
-                    : y.summary.decidedTasks
-                      ? `${y.summary.decidedTasks} shipped`
-                      : "No tasks yet"}
-                </div>
-              </div>
-              {y.summary.needsYou > 0 && <span className="text-[13px] font-medium text-overlap">{y.summary.needsYou} need you</span>}
-              <CaretRight className="text-muted" />
-            </Link>
-          ))}
-        </Card>
-      </Section>
-    </Page>
-  );
-}
-
-// ── right: one yard ────────────────────────────────────────────────────────
+import { codeQuery, yardParams, yardQuery } from "../lib/queries";
+import { useYard } from "./YardLayout";
 
 const DONE_SHOWN = 5;
 
-function YardOverview({ yard }: { yard: string }) {
+/**
+ * A yard's front page answers, in order: does anything need me, what's moving, what shipped
+ * lately, and what is this project (its README).
+ */
+export function YardOverview() {
+  const { yard, start } = useYard();
   const status = useQuery(yardQuery(yard));
-  const live = useYardSync(yard);
-  const navigate = useNavigate();
-  const [newTask, setNewTask] = useState(false);
-  const [allDone, setAllDone] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const code = useQuery(codeQuery(yard, ""));
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 15_000);
     return () => clearInterval(t);
   }, []);
-  useHotkeys([{ hotkey: "N", callback: () => setNewTask(true) }]);
-  useCommands(
-    "yard",
-    [
-      { id: "new-task", group: "Actions", title: "New task", hint: "n", run: () => setNewTask(true) },
-      { id: "delete-yard", group: "Actions", title: "Delete yard…", run: () => setDeleting(true) },
-      ...(status.data?.tasks ?? []).map((t) => ({
-        id: `task-${t.id}`,
-        group: "Tasks",
-        title: t.title,
-        run: () => void navigate({ to: "/$owner/$yard/t/$task", params: { ...yardParams(yard), task: t.id } }),
-      })),
-    ],
-    [status.data],
-  );
-
-  if (status.error)
-    return (
-      <div className="mx-auto max-w-lg px-6 py-20">
-        <Empty title="Can't load this yard" description={status.error.message} />
-      </div>
-    );
   const s = status.data;
-  if (!s)
-    return (
-      <div className="p-10">
-        <Loader />
-      </div>
-    );
+  if (!s) return <Loader />;
 
   const open = s.tasks.filter((t) => t.status === "open");
-  const done = s.tasks.filter((t) => t.status !== "open").sort((a, b) => (b.decidedAt ?? "").localeCompare(a.decidedAt ?? ""));
+  const done = s.tasks.filter((t) => t.status === "decided").sort((a, b) => (b.decidedAt ?? "").localeCompare(a.decidedAt ?? ""));
   const working = s.agents.filter((a) => open.some((t) => t.id === a.taskId) && a.status !== "failed" && a.status !== "retired").length;
   const taskTitle = (id: string | null) => s.tasks.find((t) => t.id === id)?.title ?? null;
   const agentOf = (taskId: string | null, id: string | null) => s.agents.find((a) => a.taskId === taskId && a.id === id) ?? null;
-
+  const tree = code.data?.kind === "tree" ? code.data.tree : null;
+  const readme = tree?.readme ?? null;
+  // The README's first paragraph is the project's one-line description.
+  const about = readme?.text
+    ?.split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .find((p) => p && !p.startsWith("#") && !p.startsWith("![") && !p.startsWith("<") && !p.startsWith("[!"));
   const summary = [
     open.length ? `${open.length} ${open.length === 1 ? "task" : "tasks"} in progress` : "Nothing in progress",
-    working ? `${working} agents working` : null,
+    working ? `${working} ${working === 1 ? "agent" : "agents"} working` : null,
     s.pulse.pushesPerMin ? `${s.pulse.pushesPerMin} pushes a minute` : null,
   ]
     .filter(Boolean)
     .join(" · ");
 
   return (
-    <Page>
-      <header className="flex items-start gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2.5">
-            <h1 className="truncate text-h1">{s.yard.name}</h1>
-            <span title={live === "live" ? "Live" : live === "connecting" ? "Connecting" : "Offline"}>
-              <Dot color={live === "live" ? "var(--color-good)" : live === "connecting" ? "var(--color-busy)" : "var(--color-bad)"} pulse={live !== "live"} />
-            </span>
-          </div>
-          <p className="mt-1.5 text-body">{summary}</p>
-        </div>
-        <Button variant="primary" icon={<Plus />} onClick={() => setNewTask(true)}>
-          New task
-        </Button>
-      </header>
+    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="min-w-0">
+      {open.length > 0 && <p className="mb-6 text-body">{summary}</p>}
 
       {s.asks.length > 0 && (
         <Section title="Needs you">
@@ -297,44 +75,54 @@ function YardOverview({ yard }: { yard: string }) {
         ) : (
           <Card className="flex items-center justify-between gap-4 px-5 py-4">
             <p className="text-[14px] text-body">Start a task and agents pick it up. You'll only hear from them if they're stuck.</p>
-            <Button size="sm" onClick={() => setNewTask(true)}>
+            <Button size="sm" onClick={() => start()}>
               New task
             </Button>
           </Card>
         )}
       </Section>
 
-      <Backlog yard={yard} />
-
       {done.length > 0 && (
         <Section
-          title="Done"
+          title="Recently shipped"
           aside={
-            done.length > DONE_SHOWN && (
-              <button className="text-[13px] text-body hover:text-fg" onClick={() => setAllDone(!allDone)}>
-                {allDone ? "Show fewer" : `Show all ${done.length}`}
-              </button>
-            )
+            <Link to="/$owner/$yard/log" params={yardParams(yard)} className="text-[13px] text-body hover:text-fg">
+              See the log
+            </Link>
           }
         >
           <Card className="divide-y divide-line overflow-hidden">
-            {(allDone ? done : done.slice(0, DONE_SHOWN)).map((t) => (
+            {done.slice(0, DONE_SHOWN).map((t) => (
               <TaskRow key={t.id} yard={yard} task={t} status={s} now={now} />
             ))}
           </Card>
         </Section>
       )}
-      <Section title="Delete this yard">
-        <Card className="flex items-center justify-between gap-4 px-5 py-4">
-          <p className="text-[14px] text-body">Removes the repo, every agent's fork, its tasks and backlog. There's no undo.</p>
-          <Button size="sm" variant="danger" onClick={() => setDeleting(true)}>
-            Delete yard
-          </Button>
-        </Card>
-      </Section>
-      <CreateTaskDialog yard={yard} open={newTask} setOpen={setNewTask} />
-      <DeleteYardDialog yard={yard} name={s.yard.name} open={deleting} setOpen={setDeleting} />
-    </Page>
+
+      {readme?.text && (
+        <Section title={readme.name}>
+          <Card className="overflow-hidden">
+            <Markdown className="px-6 py-5" base={`/${yardParams(yard).owner}/${yardParams(yard).yard}/code/`}>
+              {readme.text}
+            </Markdown>
+          </Card>
+        </Section>
+      )}
+      </div>
+
+      <aside className="space-y-6 text-[14px] lg:pt-0" aria-label="About">
+        <div>
+          <SectionTitle className="mb-2">About</SectionTitle>
+          <div className="text-body">{about ? <Markdown className="[&_p]:m-0">{about.length > 280 ? `${about.slice(0, 277)}…` : about}</Markdown> : "No description yet. Add a README and it shows up here."}</div>
+        </div>
+        <dl className="space-y-2.5 border-t border-line pt-5 text-[13px]">
+          <Fact label="Shipped" value={`${done.length} ${done.length === 1 ? "change" : "changes"}`} to="/$owner/$yard/log" yard={yard} />
+          <Fact label="In progress" value={`${open.length} ${open.length === 1 ? "task" : "tasks"}`} />
+          {tree?.head && <Fact label="Last change" value={ago(tree.head.at, now)} />}
+          <Fact label="Created" value={new Date(s.yard.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} />
+        </dl>
+      </aside>
+    </div>
   );
 }
 
@@ -371,15 +159,26 @@ function TaskRow({ yard, task, status, now }: { yard: string; task: YardStatus["
   );
 }
 
-// ── layout ─────────────────────────────────────────────────────────────────
-
-function Page({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-3xl px-8 py-10 max-sm:px-4">{children}</div>;
+function Fact({ label, value, to, yard }: { label: string; value: string; to?: "/$owner/$yard/log"; yard?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-body">{label}</dt>
+      <dd className="font-medium">
+        {to && yard ? (
+          <Link to={to} params={yardParams(yard)} className="hover:underline">
+            {value}
+          </Link>
+        ) : (
+          value
+        )}
+      </dd>
+    </div>
+  );
 }
 
 function Section({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="mt-10" aria-label={title}>
+    <section className="mt-10 first:mt-0" aria-label={title}>
       <div className="mb-3 flex items-center justify-between">
         <SectionTitle>{title}</SectionTitle>
         {aside}

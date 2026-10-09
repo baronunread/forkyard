@@ -89,6 +89,26 @@ export const fileCompareQuery = (yard: string, task: string, path: string, heads
     gcTime: 10 * 60_000,
   });
 
+/**
+ * A path of the base: a folder (its entries and README) or, when there's no folder there, a file.
+ * Keyed under the yard, so a decision (a live event) refreshes it.
+ */
+export const codeQuery = (yard: string, path: string) =>
+  queryOptions({
+    queryKey: ["yard", yard, "code", path],
+    queryFn: async () => {
+      try {
+        return { kind: "tree" as const, tree: await call(yardRoute.code.tree.$get({ param: { yard }, query: { path } })) };
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 404) || !path) throw e;
+        return { kind: "file" as const, file: await call(yardRoute.code.file.$get({ param: { yard }, query: { path } })) };
+      }
+    },
+  });
+
+export const codeLogQuery = (yard: string) =>
+  queryOptions({ queryKey: ["yard", yard, "log"], queryFn: () => call(yardRoute.code.log.$get({ param: { yard } })) });
+
 export const benchRunsQuery = queryOptions({ queryKey: ["bench"], queryFn: () => call(client.bench.$get()) });
 
 /** Heads of every agent on a task, the cache key for file comparisons. */

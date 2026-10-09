@@ -14,7 +14,7 @@ import { yardParams } from "../lib/queries";
  * The yard's backlog (issue #15): tasks that haven't started. GitHub issues come in here once;
  * "Start" turns an item into a task with its body and discussion as the brief.
  */
-export function Backlog({ yard }: { yard: string }) {
+export function Backlog({ yard, full = false }: { yard: string; full?: boolean }) {
   const items = useQuery({
     queryKey: ["yard", yard, "backlog"],
     queryFn: () => call(yardRoute.backlog.$get({ param: { yard } })),
@@ -34,17 +34,17 @@ export function Backlog({ yard }: { yard: string }) {
     wasPulling.current = !!pulling;
   }, [pulling]);
   const waiting = (items.data?.items ?? []).filter((i) => i.status === "open");
-  const shown = all ? waiting : waiting.slice(0, 8);
+  const shown = all || full ? waiting : waiting.slice(0, 8);
 
   return (
-    <section className="mt-10" aria-label="Backlog">
+    <section className={full ? "max-w-4xl" : "mt-10"} aria-label="Backlog">
       <div className="mb-3 flex items-center justify-between gap-3">
         <SectionTitle>
           Backlog{waiting.length ? <span className="ml-1.5 text-muted">{waiting.length}</span> : null}
           {pulling && waiting.length > 0 && <Loader size="sm" className="ml-2 inline-block align-middle" />}
         </SectionTitle>
         <div className="flex items-center gap-3">
-          {waiting.length > 8 && (
+          {waiting.length > 8 && !full && (
             <button className="text-[13px] text-body hover:text-fg" onClick={() => setAll(!all)}>
               {all ? "Show fewer" : `Show all ${waiting.length}`}
             </button>

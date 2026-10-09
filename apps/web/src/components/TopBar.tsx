@@ -98,7 +98,7 @@ export function TopBar({ onPalette }: { onPalette: () => void }) {
                 {user.email && <div className="truncate text-xs text-body">{user.email}</div>}
               </div>
               <DropdownMenu.Separator />
-              <DropdownMenu.Item onClick={() => void navigate({ to: "/" })}>Overview</DropdownMenu.Item>
+              <DropdownMenu.Item onClick={() => void navigate({ to: "/" })}>Home</DropdownMenu.Item>
               <DropdownMenu.Item onClick={() => void navigate({ to: "/bench" })}>Benchmarks</DropdownMenu.Item>
               <DropdownMenu.Item onClick={() => void navigate({ to: "/settings" })}>Settings and limits</DropdownMenu.Item>
               <DropdownMenu.Item onClick={() => setChatgpt(true)}>ChatGPT for reviews…</DropdownMenu.Item>

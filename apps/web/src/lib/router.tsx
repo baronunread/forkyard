@@ -6,7 +6,12 @@ import { AppShell } from "../components/AppShell";
 import { BenchPage } from "../pages/BenchPage";
 import { Connect } from "../pages/Connect";
 import { Login } from "../pages/Login";
-import { Overview } from "../pages/Overview";
+import { Backlog } from "../components/Backlog";
+import { CodePage } from "../pages/CodePage";
+import { Home } from "../pages/Home";
+import { LogPage } from "../pages/LogPage";
+import { YardOverview } from "../pages/Overview";
+import { useYard, YardLayout } from "../pages/YardLayout";
 import { SettingsPage } from "../pages/SettingsPage";
 import { TaskPage } from "../pages/TaskPage";
 import { oauthInFlight } from "./auth-client";
@@ -20,8 +25,8 @@ import { toasts } from "./toast";
  *
  *   /login                    sign in (also the OAuth login step for agents)
  *   /connect                  an agent's OAuth: pick a seat, consent
- *   /                         overview: every yard on the left, the selected one's overview on the right
- *   /$owner/$yard             the same, with that yard selected
+ *   /                         home: what needs you, then your yards
+ *   /$owner/$yard             a yard: Overview, then /code/<path>, /backlog, /log
  *   /$owner/$yard/t/$task     a task (?agent=&file=&view=)
  *   /y/<yard id>/…            redirects to the yard's /owner/slug
  *   /bench                    benchmarks
@@ -78,7 +83,7 @@ const appRoute = createRoute({
 const indexRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/",
-  component: () => <Overview yard={null} />,
+  component: Home,
 });
 
 /** The yard id behind /owner/slug; /y/<id> redirects to the yard's /owner/slug. Unknown: the slug, which then 404s. */
@@ -96,11 +101,32 @@ const yardRoute = createRoute({
     if (moved) throw redirect({ to: "/$owner/$yard", params: { owner: y!.owner, yard: y!.slug }, replace: true });
     return { yardId };
   },
-  component: function YardOverview() {
+  component: function YardRouteView() {
     const { yardId } = yardRoute.useRouteContext();
-    return <Overview yard={yardId} />;
+    return <YardLayout key={yardId} yard={yardId} />;
   },
 });
+
+const yardIndexRoute = createRoute({ getParentRoute: () => yardRoute, path: "/", component: YardOverview });
+
+const codeRoute = createRoute({
+  getParentRoute: () => yardRoute,
+  path: "code/$",
+  component: function CodeRouteView() {
+    const { _splat } = codeRoute.useParams();
+    return <CodePage key={_splat} path={_splat ?? ""} />;
+  },
+});
+
+const backlogRoute = createRoute({
+  getParentRoute: () => yardRoute,
+  path: "backlog",
+  component: function BacklogRouteView() {
+    return <Backlog yard={useYard().yard} full />;
+  },
+});
+
+const logRoute = createRoute({ getParentRoute: () => yardRoute, path: "log", component: LogPage });
 
 const taskRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -123,7 +149,7 @@ const benchRoute = createRoute({ getParentRoute: () => appRoute, path: "/bench",
 
 const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: "/settings", component: SettingsPage });
 
-const routeTree = rootRoute.addChildren([loginRoute, connectRoute, appRoute.addChildren([indexRoute, yardRoute, taskRoute, benchRoute, settingsRoute])]);
+const routeTree = rootRoute.addChildren([loginRoute, connectRoute, appRoute.addChildren([indexRoute, yardRoute.addChildren([yardIndexRoute, codeRoute, backlogRoute, logRoute]), taskRoute, benchRoute, settingsRoute])]);
 
 export const router = createRouter({
   routeTree,
@@ -132,6 +158,24 @@ export const router = createRouter({
   // Loaders don't own data here; TanStack Query does.
   defaultPreloadStaleTime: 0,
   scrollRestoration: true,
+});
+
+/**
+ * After a deploy, an open tab still runs the old bundle against the new API. After a navigation
+ * (at most once a minute), compare our entry script with the deployed one and reload when it changed.
+ */
+let checkedAt = 0;
+router.subscribe("onResolved", () => {
+  if (import.meta.env.DEV || Date.now() - checkedAt < 60_000) return;
+  checkedAt = Date.now();
+  const mine = document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute("src");
+  void fetch("/", { cache: "no-store" })
+    .then((r) => r.text())
+    .then((html) => {
+      const live = /<script type="module"[^>]*src="([^"]+)"/.exec(html)?.[1];
+      if (mine && live && live !== mine) location.reload();
+    })
+    .catch(() => undefined);
 });
 
 declare module "@tanstack/react-router" {

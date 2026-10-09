@@ -15,7 +15,7 @@ export function AppShell() {
   useCommands(
     "global",
     [
-      { id: "home", group: "Go to", title: "Overview", run: () => void navigate({ to: "/" }) },
+      { id: "home", group: "Go to", title: "Home", run: () => void navigate({ to: "/" }) },
       { id: "bench", group: "Go to", title: "Benchmarks", run: () => void navigate({ to: "/bench" }) },
       { id: "theme-light", group: "Theme", title: "Light theme", run: () => setPref("light") },
       { id: "theme-dark", group: "Theme", title: "Dark theme", run: () => setPref("dark") },

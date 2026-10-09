@@ -21,6 +21,7 @@ import * as chatgpt from "./chatgpt";
 import type { Env } from "./env";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
 import * as backlog from "./backlog";
+import * as code from "./code";
 import { limitsReport } from "./limits";
 import * as svc from "./service";
 
@@ -110,6 +111,14 @@ export const api = new Hono<HonoEnv>()
   .post("/yards", zValidator("json", CreateYardInput), async (c) => c.json(await svc.yardCreate(c.env, c.get("principal"), c.req.valid("json"), origin(c.env, c.req.raw)), 201))
   .get("/yards/:yard", zValidator("param", yardParam), async (c) => c.json(await svc.yardStatus(c.env, c.get("principal"), c.req.valid("param").yard)))
   .delete("/yards/:yard", zValidator("param", yardParam), async (c) => c.json(await svc.yardDelete(c.env, c.get("principal"), c.req.valid("param").yard)))
+  // The base repo as people read it: folders, files, and the log with each change's task.
+  .get("/yards/:yard/code/tree", zValidator("param", yardParam), zValidator("query", z.object({ path: z.string().max(1000).default("") })), async (c) =>
+    c.json(await code.codeTree(c.env, c.get("principal"), c.req.valid("param").yard, c.req.valid("query").path.replace(/^\/+|\/+$/g, ""))),
+  )
+  .get("/yards/:yard/code/file", zValidator("param", yardParam), zValidator("query", z.object({ path: z.string().min(1).max(1000) })), async (c) =>
+    c.json(await code.codeFile(c.env, c.get("principal"), c.req.valid("param").yard, c.req.valid("query").path.replace(/^\/+/, ""))),
+  )
+  .get("/yards/:yard/code/log", zValidator("param", yardParam), async (c) => c.json(await code.codeLog(c.env, c.get("principal"), c.req.valid("param").yard)))
   .get("/yards/:yard/base", zValidator("param", yardParam), async (c) =>
     c.json(await svc.yardBaseLog(c.env, c.get("principal"), c.req.valid("param").yard)),
   )

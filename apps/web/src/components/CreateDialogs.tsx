@@ -186,7 +186,7 @@ function agentSpecs(cloud: number, local: number) {
   ];
 }
 
-export function CreateTaskDialog({ yard, open, setOpen }: { yard: string; open: boolean; setOpen: (o: boolean) => void }) {
+export function CreateTaskDialog({ yard, open, setOpen, initialBrief = "" }: { yard: string; open: boolean; setOpen: (o: boolean) => void; initialBrief?: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [created, setCreated] = useState<CreatedTask | null>(null);
@@ -208,7 +208,7 @@ export function CreateTaskDialog({ yard, open, setOpen }: { yard: string; open: 
     onError: (e) => toastError(e, "Could not create task"),
   });
   const form = useForm({
-    defaultValues: { title: "", brief: "", cloud: 3, local: 0 },
+    defaultValues: { title: "", brief: initialBrief, cloud: 3, local: 0 },
     validators: { onChange: TaskForm },
     onSubmit: ({ value }) => create.mutateAsync(value).catch(() => undefined),
   });

@@ -72,6 +72,10 @@ export type FileCompare = Res<(typeof t.compare)["file"]["$get"]>;
 export type DecidePreview = Res<(typeof t.decide)["preview"]["$post"]>;
 /** The non-streaming task_create response (the route also streams NDJSON, which erases its type). */
 export type CreatedTask = { task: Task; agents: (Agent & { previewUrl: string | null })[]; credentials: AgentCredential[] };
+export type CodeTree = Res<(typeof y.code)["tree"]["$get"]>;
+export type CodeFile = Res<(typeof y.code)["file"]["$get"]>;
+export type CodeLog = Res<(typeof y.code)["log"]["$get"]>;
+export type Change = CodeLog["changes"][number];
 export type BenchRuns = Res<typeof client.bench.$get>;
 export type Latency = Res<typeof y.latency.$get>;
 
