@@ -6,7 +6,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { AskCard } from "../components/AskCard";
 import { Backlog } from "../components/Backlog";
-import { CreateTaskDialog, CreateYardDialog } from "../components/CreateDialogs";
+import { CreateTaskDialog, CreateYardDialog, DeleteYardDialog } from "../components/CreateDialogs";
 import { Button, Card, cx, Dot, SectionTitle } from "../components/ui";
 import type { YardList, YardStatus } from "../lib/api";
 import { useCommands } from "../lib/commands";
@@ -210,6 +210,7 @@ function YardOverview({ yard }: { yard: string }) {
   const navigate = useNavigate();
   const [newTask, setNewTask] = useState(false);
   const [allDone, setAllDone] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 15_000);
@@ -220,6 +221,7 @@ function YardOverview({ yard }: { yard: string }) {
     "yard",
     [
       { id: "new-task", group: "Actions", title: "New task", hint: "n", run: () => setNewTask(true) },
+      { id: "delete-yard", group: "Actions", title: "Delete yard…", run: () => setDeleting(true) },
       ...(status.data?.tasks ?? []).map((t) => ({
         id: `task-${t.id}`,
         group: "Tasks",
@@ -322,7 +324,16 @@ function YardOverview({ yard }: { yard: string }) {
           </Card>
         </Section>
       )}
+      <Section title="Delete this yard">
+        <Card className="flex items-center justify-between gap-4 px-5 py-4">
+          <p className="text-[14px] text-body">Removes the repo, every agent's fork, its tasks and backlog. There's no undo.</p>
+          <Button size="sm" variant="danger" onClick={() => setDeleting(true)}>
+            Delete yard
+          </Button>
+        </Card>
+      </Section>
       <CreateTaskDialog yard={yard} open={newTask} setOpen={setNewTask} />
+      <DeleteYardDialog yard={yard} name={s.yard.name} open={deleting} setOpen={setDeleting} />
     </Page>
   );
 }

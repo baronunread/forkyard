@@ -259,6 +259,11 @@ async function main() {
     check(after.events.length >= detail.agents.length, `cleanup deleted ${after.events.length} forks of closed tasks`);
   }
 
+  // Last: delete the yard, repos and all.
+  const gone = await api<{ repos: number }>(`/yards/${yardId}`, { method: "DELETE" });
+  check(gone.repos > 1, `deleting the yard removes its base repo and ${gone.repos - 1} forks`);
+  await expectStatus(api(`/yards/${yardId}`), 404, "a deleted yard is gone");
+
   console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
   process.exit(failures ? 1 : 0);
 }

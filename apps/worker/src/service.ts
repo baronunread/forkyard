@@ -151,8 +151,28 @@ export async function yardsList(env: Env, p: Principal): Promise<(Yard & { summa
 
 /** Why a yard can't take this address or name ("address" / "name"), or null when both are free. */
 export async function yardNameTaken(env: Env, id: string, name: string): Promise<"address" | "name" | null> {
-  const r = await env.DB.prepare("SELECT id = ? AS same_id FROM yards WHERE id = ? OR lower(name) = lower(?) LIMIT 1").bind(id, id, name.trim()).first<{ same_id: number }>();
-  return r ? (r.same_id ? "address" : "name") : null;
+  return (await yardNameOwner(env, id, name))?.reason ?? null;
+}
+
+async function yardNameOwner(env: Env, id: string, name: string) {
+  const r = await env.DB.prepare("SELECT id, id = ? AS same_id FROM yards WHERE id = ? OR lower(name) = lower(?) LIMIT 1").bind(id, id, name.trim()).first<{ id: string; same_id: number }>();
+  return r ? { yard: r.id, reason: r.same_id ? ("address" as const) : ("name" as const) } : null;
+}
+
+/**
+ * The name check behind "New yard": whether it's free, and when it isn't, whether the yard is
+ * the caller's own (so the dialog can link to it) and the first free "Name 2".."Name 9".
+ */
+export async function yardNameCheck(env: Env, p: Principal, id: string, name: string) {
+  const hit = await yardNameOwner(env, id, name);
+  if (!hit) return { available: true as const };
+  const mine = p.kind === "user" && !!(await env.DB.prepare("SELECT 1 FROM yard_members WHERE yard_id = ? AND user_id = ?").bind(hit.yard, p.userId).first());
+  let suggestion: string | null = null;
+  for (let n = 2; n <= 9 && !suggestion; n++) {
+    const next = `${name.trim() || id} ${n}`;
+    if (!(await yardNameOwner(env, `${id.slice(0, 37)}-${n}`, next))) suggestion = next;
+  }
+  return { available: false as const, reason: hit.reason, yard: hit.yard, mine, suggestion };
 }
 
 export async function yardCreate(env: Env, p: Principal, input: CreateYardInput): Promise<Yard> {
@@ -214,6 +234,34 @@ export async function yardCreate(env: Env, p: Principal, input: CreateYardInput)
     await env.DB.prepare("INSERT INTO yard_members (yard_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(yard.id, p.userId, now()).run();
   await yardStub(env, yard).init(yard);
   return yard;
+}
+
+/**
+ * Delete a yard for good: its base repo and every fork in Artifacts, its rows in D1 and its
+ * Durable Object's state. Only its owner (or the operator) can. Repos go first, so a failure
+ * leaves the yard listed and the delete can simply be retried.
+ * ponytail: cloud agents' own Durable Objects are left idle (no storage cost to speak of).
+ */
+export async function yardDelete(env: Env, p: Principal, yardId: string): Promise<{ deleted: string; repos: number }> {
+  const yard = await mustYard(env, yardId);
+  if (p.kind !== "admin") {
+    const owner = p.kind === "user" && (await env.DB.prepare("SELECT 1 FROM yard_members WHERE yard_id = ? AND user_id = ? AND role = 'owner'").bind(yardId, p.userId).first());
+    if (!owner) throw new ServiceError(403, "only the yard's owner can delete it");
+  }
+  const artifacts = getArtifacts(env, yard.jurisdiction);
+  const { results: forks } = await env.DB.prepare("SELECT fork_name FROM agents WHERE yard_id = ? AND fork_deleted_at IS NULL").bind(yardId).all<{ fork_name: string }>();
+  const names = [...forks.map((f) => f.fork_name), yard.baseRepo];
+  await mapLimit(names, 8, async (name) => {
+    try {
+      await artifacts.delete(name);
+    } catch (err) {
+      if (errorCode(err) !== "NOT_FOUND") throw err;
+    }
+  });
+  await yardStub(env, yard).destroy();
+  const tables = ["backlog_comments", "backlog_items", "asks", "decisions", "reviews", "diffs", "intents", "api_keys", "agents", "tasks", "yard_members"];
+  await env.DB.batch([...tables.map((t) => env.DB.prepare(`DELETE FROM ${t} WHERE yard_id = ?`).bind(yardId)), env.DB.prepare("DELETE FROM yards WHERE id = ?").bind(yardId)]);
+  return { deleted: yardId, repos: names.length };
 }
 
 export async function yardStatus(env: Env, p: Principal, yardId: string) {

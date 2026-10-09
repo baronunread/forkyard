@@ -10,6 +10,7 @@ const VARIANTS = {
   primary: "bg-ink text-on-ink hover:bg-ink-hover",
   secondary: "bg-surface text-fg shadow-[0_0_0_1px_var(--color-line)] hover:bg-hover",
   ghost: "text-body hover:bg-hover hover:text-fg",
+  danger: "bg-bad text-white hover:opacity-90",
 } as const;
 const SIZES = {
   sm: "h-7 gap-1.5 px-2 text-[13px]",

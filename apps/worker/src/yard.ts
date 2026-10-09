@@ -913,6 +913,13 @@ export class Yard extends DurableObject<Env> {
     await this.closeAsks(decision.taskId, "The task was decided.");
   }
 
+  /** The yard is being deleted: drop live connections and every byte this object stores. */
+  async destroy(): Promise<void> {
+    for (const ws of this.ctx.getWebSockets()) ws.close(1001, "yard deleted");
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+  }
+
   async abandon(taskId: string, reason: string): Promise<void> {
     const yard = await this.yard();
     await this.env.DB.batch([

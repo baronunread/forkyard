@@ -79,24 +79,19 @@ export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o
   });
 
   const fresh = settledName === name.trim() && !check.isFetching;
+  const taken = fresh && check.data && !check.data.available ? check.data : null;
   const status =
     slug.length < 2
       ? name.trim()
-        ? { tone: "bad", text: "Use at least two letters or digits" }
+        ? { tone: "bad", text: "Use at least two letters or numbers." }
         : null
       : !fresh || !check.data
         ? { tone: "muted", text: `/y/${slug}` }
         : check.data.available
-          ? { tone: "good", text: `/y/${slug} is free` }
-          : {
-              tone: "bad",
-              text:
-                check.data.reason === "address"
-                  ? `/y/${slug} is taken; try another name`
-                  : check.data.reason === "name"
-                    ? `There's already a yard called "${name.trim()}"`
-                    : (check.data.reason ?? "Not a valid name"),
-            };
+          ? { tone: "good", text: `Available: /y/${slug}` }
+          : taken && "mine" in taken && taken.mine
+            ? { tone: "bad", text: `You already have a yard called “${name.trim()}”.` }
+            : { tone: "bad", text: taken && "yard" in taken ? `“${name.trim()}” is taken.` : "Not a valid name." };
   const ready = fresh && !!check.data?.available && !atLimit && !create.isPending;
 
   return (
@@ -124,6 +119,16 @@ export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o
               className={cx("mt-1.5 min-h-5 text-[13px]", status?.tone === "good" ? "text-good" : status?.tone === "bad" ? "text-bad" : "text-muted")}
             >
               {status?.text}
+              {taken && "yard" in taken && taken.mine && (
+                <button type="button" className="ml-2 text-fg underline underline-offset-2" onClick={() => (setOpen(false), reset(), void navigate({ to: "/y/$yard", params: { yard: taken.yard } }))}>
+                  Open it
+                </button>
+              )}
+              {taken && "suggestion" in taken && taken.suggestion && (
+                <button type="button" className="ml-2 text-fg underline underline-offset-2" onClick={() => setName(taken.suggestion!)}>
+                  Use “{taken.suggestion}”
+                </button>
+              )}
             </p>
           </div>
           {repos.data?.connected && repos.data.repos.length > 0 && (
@@ -322,6 +327,57 @@ export function CreateTaskDialog({ yard, open, setOpen }: { yard: string; open: 
             </div>
           </div>
         )}
+      </Dialog>
+    </Dialog.Root>
+  );
+}
+
+/** Deleting a yard is for good, so it asks for the yard's name first (as GitHub does for repos). */
+export function DeleteYardDialog({ yard, name, open, setOpen }: { yard: string; name: string; open: boolean; setOpen: (o: boolean) => void }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [typed, setTyped] = useState("");
+  const del = useMutation({
+    mutationFn: () => call(client.yards[":yard"].$delete({ param: { yard } })),
+    onSuccess: async () => {
+      toasts.add({ title: "Yard deleted", description: name, variant: "success" });
+      setOpen(false);
+      qc.removeQueries({ queryKey: ["yard", yard] });
+      await qc.invalidateQueries({ queryKey: ["yards"] });
+      void qc.invalidateQueries({ queryKey: ["me", "limits"] });
+      void navigate({ to: "/" });
+    },
+    onError: (e) => toastError(e, "Could not delete yard"),
+  });
+  const ok = typed.trim() === name;
+  return (
+    <Dialog.Root
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setTyped("");
+      }}
+    >
+      <Dialog className="p-6" size="base">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (ok) del.mutate();
+          }}
+        >
+          <Dialog.Title className="text-h2">Delete “{name}”?</Dialog.Title>
+          <Dialog.Description className="text-sm text-body">
+            This deletes the yard's repo, every agent's fork, its tasks, reviews and backlog. It can't be undone.
+          </Dialog.Description>
+          <Input label={`Type “${name}” to confirm`} autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} />
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="danger" loading={del.isPending} disabled={!ok}>
+              Delete yard
+            </Button>
+          </div>
+        </form>
       </Dialog>
     </Dialog.Root>
   );
