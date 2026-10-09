@@ -31,7 +31,7 @@ import {
   type YardEvent,
 } from "@forkyard/shared";
 import { disposeRepo, errorCode, getArtifacts, type Repo } from "./artifacts";
-import { agentFromRow, askFromRow, getAsk, getYard, latestIntents, latestReviews, listAgents, newId, now, sha256Hex } from "./db";
+import { agentFromRow, askFromRow, getAsk, getTask, getYard, latestIntents, latestReviews, listAgents, newId, now, sha256Hex } from "./db";
 import { applyDecision, DecideError } from "./decide";
 import { piAgentStub } from "./pi-agent";
 import { mapLimit } from "./diff";
@@ -57,6 +57,8 @@ interface SocketInfo {
 }
 
 /** Overlap sizes worth a new entry in the shared log (it always starts at 2). */
+/** Artifacts forks take 3–7 s in production; past this one is retried. */
+const FORK_TIMEOUT_MS = 30_000;
 const OVERLAP_MILESTONES = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
 
 const PULSE_WINDOW_MS = 120_000;
@@ -397,7 +399,11 @@ export class Yard extends DurableObject<Env> {
     let lastErr: unknown = null;
     for (let attempt = 0; attempt < 3 && !remote; attempt++) {
       try {
-        const res = await base.fork(agent.forkName, { description, defaultBranchOnly: true });
+        // A fork that hangs is retried like one that failed, instead of leaving the seat stuck.
+        const res = await Promise.race([
+          base.fork(agent.forkName, { description, defaultBranchOnly: true }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(Object.assign(new Error("fork timed out"), { code: "FORK_TIMEOUT" })), FORK_TIMEOUT_MS)),
+        ]);
         remote = res.remote;
         token = res.token;
       } catch (err) {
@@ -411,7 +417,7 @@ export class Yard extends DurableObject<Env> {
           } finally {
             disposeRepo(existing);
           }
-        } else if (code === "INTERNAL_ERROR" || code === "UPSTREAM_UNAVAILABLE" || code === "FORK_IN_PROGRESS") {
+        } else if (code === "INTERNAL_ERROR" || code === "UPSTREAM_UNAVAILABLE" || code === "FORK_IN_PROGRESS" || code === "FORK_TIMEOUT") {
           await new Promise((r) => setTimeout(r, 150 * 2 ** attempt));
         } else break;
       }
@@ -456,15 +462,17 @@ export class Yard extends DurableObject<Env> {
     if (!r) throw new Error(`agent ${agentId} not found on task ${taskId}`);
     const agent = agentFromRow(r);
     if (agent.status !== "forking") return agent;
-    // The DO restarted mid fan-out: poll D1 briefly.
-    for (let i = 0; i < 40; i++) {
-      await new Promise((res) => setTimeout(res, 250));
-      const again = await this.env.DB.prepare("SELECT * FROM agents WHERE yard_id = ? AND task_id = ? AND id = ?")
-        .bind(yard.id, taskId, agentId)
-        .first();
-      if (again && again.status !== "forking") return agentFromRow(again);
-    }
-    return agent;
+    // Still "forking" and nothing here is working on it: the object restarted mid fan-out and the
+    // fork was lost with it. Fork again now; an existing fork is adopted, not duplicated.
+    const task = await getTask(this.env.DB, yard.id, taskId);
+    if (!task) throw new Error(`task ${taskId} not found`);
+    const base = await this.artifacts().get(yard.baseRepo);
+    const p = this.forkOne(base, task, agent).finally(() => {
+      this.forks.delete(`${taskId}/${agentId}`);
+      disposeRepo(base);
+    });
+    this.forks.set(`${taskId}/${agentId}`, p);
+    return p;
   }
 
   async workspace(taskId: string, agentId: string): Promise<Workspace> {
