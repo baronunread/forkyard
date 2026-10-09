@@ -175,6 +175,20 @@ export async function yardNameCheck(env: Env, p: Principal, origin: string, name
   return { available: false, owner, slug, yard: hit.id, suggestion };
 }
 
+/** Remove whatever a failed yardCreate made: the base repo, the object's state, the rows. */
+async function undoYardCreate(env: Env, id: string, repoName: string, jurisdiction: Yard["jurisdiction"]) {
+  try {
+    await getArtifacts(env, jurisdiction).delete(repoName);
+  } catch (err) {
+    if (errorCode(err) !== "NOT_FOUND") throw err;
+  }
+  await yardStub(env, { id, jurisdiction }).destroy();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM yard_members WHERE yard_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM yards WHERE id = ?").bind(id),
+  ]);
+}
+
 export async function yardCreate(env: Env, p: Principal, input: CreateYardInput, origin: string): Promise<Yard> {
   assertPerson(p);
   await assertCanCreateYard(env, p);
@@ -196,62 +210,68 @@ export async function yardCreate(env: Env, p: Principal, input: CreateYardInput,
   const artifacts = getArtifacts(env, input.jurisdiction);
   const id = input.id!;
   const name = baseRepoName(id);
-  if (input.importUrl) {
-    await artifacts.import({ source: { url: input.importUrl, depth: 50 }, target: { name, opts: { description: `Forkyard base for ${id}` } } });
-    // Imports finish asynchronously; wait until the repo answers.
-    for (let i = 0; ; i++) {
-      try {
-        disposeRepo(await artifacts.get(name));
-        break;
-      } catch (err) {
-        if (errorCode(err) !== "IMPORT_IN_PROGRESS" || i > 120) throw err;
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-    }
-  } else {
-    await artifacts.create(name, { description: `Forkyard base for ${id}`, setDefaultBranch: "main" });
-    const files = input.files ?? { "README.md": `# ${input.name ?? id}\n\nCreated by Forkyard.\n` };
-    const built = await buildCommit({
-      reader: { readTree: async () => null },
-      baseTree: null,
-      parents: [],
-      changes: new Map(Object.entries(files).map(([path, text]) => [path.replace(/^\/+/, ""), textFile(text)])),
-      message: "Initial commit",
-      author: { name: "Forkyard", email: "seed@forkyard.dev" },
-    });
-    await artifacts.writeCommit(name, built, "refs/heads/main", null);
-  }
-  const repo = await artifacts.get(name);
-  let defaultBranch = "main";
   try {
-    defaultBranch = (await repo.info()).defaultBranch;
-  } finally {
-    disposeRepo(repo);
+    if (input.importUrl) {
+      await artifacts.import({ source: { url: input.importUrl, depth: 50 }, target: { name, opts: { description: `Forkyard base for ${id}` } } });
+      // Imports finish asynchronously; wait until the repo answers.
+      for (let i = 0; ; i++) {
+        try {
+          disposeRepo(await artifacts.get(name));
+          break;
+        } catch (err) {
+          if (errorCode(err) !== "IMPORT_IN_PROGRESS" || i > 120) throw err;
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    } else {
+      await artifacts.create(name, { description: `Forkyard base for ${id}`, setDefaultBranch: "main" });
+      const files = input.files ?? { "README.md": `# ${input.name ?? id}\n\nCreated by Forkyard.\n` };
+      const built = await buildCommit({
+        reader: { readTree: async () => null },
+        baseTree: null,
+        parents: [],
+        changes: new Map(Object.entries(files).map(([path, text]) => [path.replace(/^\/+/, ""), textFile(text)])),
+        message: "Initial commit",
+        author: { name: "Forkyard", email: "seed@forkyard.dev" },
+      });
+      await artifacts.writeCommit(name, built, "refs/heads/main", null);
+    }
+    const repo = await artifacts.get(name);
+    let defaultBranch = "main";
+    try {
+      defaultBranch = (await repo.info()).defaultBranch;
+    } finally {
+      disposeRepo(repo);
+    }
+    const yard: Yard = {
+      id,
+      name: input.name ?? id,
+      owner,
+      slug,
+      baseRepo: name,
+      defaultBranch,
+      jurisdiction: input.jurisdiction,
+      previewUrlTemplate: input.previewUrlTemplate ?? null,
+      budgets: Budgets.parse(input.budgets ?? {}),
+      createdAt: now(),
+    };
+    await env.DB.prepare(
+      "INSERT INTO yards (id, name, owner, slug, base_repo, default_branch, jurisdiction, preview_url_template, budgets, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(yard.id, yard.name, yard.owner, yard.slug, yard.baseRepo, yard.defaultBranch, yard.jurisdiction, yard.previewUrlTemplate, JSON.stringify(yard.budgets), yard.createdAt)
+      .run();
+    const ownerId = ownerUser?.user_id ?? (p.kind === "user" ? p.userId : null);
+    if (ownerId) await env.DB.prepare("INSERT INTO yard_members (yard_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(yard.id, ownerId, now()).run();
+    await yardStub(env, yard).init(yard);
+    const gh = input.importUrl?.match(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/);
+    if (gh) await env.DB.prepare("UPDATE yards SET importing_issues = ? WHERE id = ?").bind(gh[1]!, id).run();
+    if (gh) await env.ISSUE_IMPORT_WORKFLOW.create({ params: { yardId: id, repo: gh[1]!, userId: p.kind === "user" ? p.userId : null, origin } });
+    return yard;
+  } catch (err) {
+    // A creation that fails leaves nothing behind, so the same name can be tried again.
+    await undoYardCreate(env, id, name, input.jurisdiction).catch((e) => console.error("undoing a failed yard creation", id, e));
+    throw err;
   }
-  const yard: Yard = {
-    id,
-    name: input.name ?? id,
-    owner,
-    slug,
-    baseRepo: name,
-    defaultBranch,
-    jurisdiction: input.jurisdiction,
-    previewUrlTemplate: input.previewUrlTemplate ?? null,
-    budgets: Budgets.parse(input.budgets ?? {}),
-    createdAt: now(),
-  };
-  await env.DB.prepare(
-    "INSERT INTO yards (id, name, owner, slug, base_repo, default_branch, jurisdiction, preview_url_template, budgets, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  )
-    .bind(yard.id, yard.name, yard.owner, yard.slug, yard.baseRepo, yard.defaultBranch, yard.jurisdiction, yard.previewUrlTemplate, JSON.stringify(yard.budgets), yard.createdAt)
-    .run();
-  const ownerId = ownerUser?.user_id ?? (p.kind === "user" ? p.userId : null);
-  if (ownerId) await env.DB.prepare("INSERT INTO yard_members (yard_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(yard.id, ownerId, now()).run();
-  await yardStub(env, yard).init(yard);
-  const gh = input.importUrl?.match(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/);
-  if (gh) await env.DB.prepare("UPDATE yards SET importing_issues = ? WHERE id = ?").bind(gh[1]!, id).run();
-  if (gh) await env.ISSUE_IMPORT_WORKFLOW.create({ params: { yardId: id, repo: gh[1]!, userId: p.kind === "user" ? p.userId : null, origin } });
-  return yard;
 }
 
 /**
