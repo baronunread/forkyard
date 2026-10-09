@@ -44,8 +44,6 @@ export interface Env {
   /** "off" skips the review pipeline on push (diagnostics; overlaps then come from claims only). */
   REVIEWS?: string;
   REVIEW_MODEL?: string;
-  /** The model cloud agents and reviews use on a connected ChatGPT plan. */
-  CHATGPT_MODEL?: string;
 
   // K2 spike (optional)
   EVENTS_K2?: K2Producer;

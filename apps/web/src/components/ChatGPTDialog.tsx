@@ -1,4 +1,4 @@
-import { Dialog, InputArea, Switch } from "@cloudflare/kumo";
+import { Dialog, InputArea, Select, Switch } from "@cloudflare/kumo";
 import { ArrowSquareOut, CheckCircle } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -10,8 +10,8 @@ const route = client.me.models.chatgpt;
 const KEY = ["me", "chatgpt"];
 
 /**
- * Your own ChatGPT plan reviews the forks in yards you own (through pi-ai's Codex provider),
- * instead of Workers AI. Sign-in is a device code: open OpenAI's page, enter the code, done.
+ * Your own ChatGPT plan runs the cloud agents on your tasks and reviews the forks in yards you
+ * own (through pi-ai's Codex provider), instead of Workers AI. You pick the model. Sign-in is a device code: open OpenAI's page, enter the code, done.
  */
 export function ChatGPTDialog({ open, setOpen }: { open: boolean; setOpen: (o: boolean) => void }) {
   const qc = useQueryClient();
@@ -21,7 +21,7 @@ export function ChatGPTDialog({ open, setOpen }: { open: boolean; setOpen: (o: b
   const [credential, setCredential] = useState("");
 
   const start = useMutation({ mutationFn: () => call(route.device.$post()), onSuccess: set, onError: (e) => toastError(e, "Couldn't start ChatGPT sign-in") });
-  const toggle = useMutation({ mutationFn: (useForReviews: boolean) => call(route.$put({ json: { useForReviews } })), onSuccess: set, onError: (e) => toastError(e, "Couldn't save") });
+  const save = useMutation({ mutationFn: (json: { useForReviews?: boolean; model?: string }) => call(route.$put({ json })), onSuccess: set, onError: (e) => toastError(e, "Couldn't save") });
   const disconnect = useMutation({ mutationFn: () => call(route.$delete()), onSuccess: set, onError: (e) => toastError(e, "Couldn't disconnect") });
   const pasteM = useMutation({
     mutationFn: () => call(route.paste.$post({ json: { credential } })),
@@ -51,9 +51,9 @@ export function ChatGPTDialog({ open, setOpen }: { open: boolean; setOpen: (o: b
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog className="p-6" size="lg">
-        <Dialog.Title className="text-h2">ChatGPT for reviews</Dialog.Title>
+        <Dialog.Title className="text-h2">Your ChatGPT plan</Dialog.Title>
         <Dialog.Description className="mt-1 text-sm text-body">
-          Forks in yards you own are reviewed on your ChatGPT plan, through pi's Codex provider. Without it, reviews use Workers AI.
+          Cloud agents on your tasks, and reviews in your yards, run on your ChatGPT plan. Without it, they use Workers AI.
         </Dialog.Description>
 
         <div className="mt-5">
@@ -63,7 +63,15 @@ export function ChatGPTDialog({ open, setOpen }: { open: boolean; setOpen: (o: b
                 <CheckCircle weight="fill" className="text-good" size={18} />
                 Connected{s.label ? <span className="text-body">as {s.label}</span> : null}
               </p>
-              <Switch label={`Review my yards with ${s.model}`} checked={s.useForReviews} disabled={toggle.isPending} onCheckedChange={(v) => toggle.mutate(v)} />
+              <Select
+                label="Model"
+                className="w-full"
+                value={s.model}
+                disabled={save.isPending}
+                onValueChange={(v) => v && save.mutate({ model: String(v) })}
+                items={Object.fromEntries(s.models.map((m) => [m.id, m.name]))}
+              />
+              <Switch label="Also review my yards with it" checked={s.useForReviews} disabled={save.isPending} onCheckedChange={(v) => save.mutate({ useForReviews: v })} />
             </div>
           ) : s.pending ? (
             <div className="rounded-lg bg-surface-2 p-5 text-center ring-1 ring-line">

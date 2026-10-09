@@ -74,6 +74,7 @@ let db: DatabaseSync;
 beforeEach(() => {
   db = new DatabaseSync(":memory:");
   db.exec(String(readFileSync(new URL("../migrations/0003_model_credentials.sql", import.meta.url).pathname)));
+  db.exec(String(readFileSync(new URL("../migrations/0009_chatgpt_model.sql", import.meta.url).pathname)));
   db.exec("CREATE TABLE yard_members (yard_id TEXT, user_id TEXT, role TEXT, created_at TEXT)");
   env = { DB: d1(db), BETTER_AUTH_SECRET: "test-secret-0123456789" } as unknown as Env;
 });
@@ -119,8 +120,9 @@ describe("ChatGPT sign-in for reviews", () => {
     globalThis.fetch = o.f; // pi-ai uses the global fetch
     try {
       // The configured model is the one used, not the catalog's first.
-      const picked = Object.values(OPENAI_CODEX_MODELS).at(-1)!.id;
-      const r = await chatgpt.complete({ ...env, CHATGPT_MODEL: picked }, "u1", "You review forks.", "Review this diff.", o.f);
+      const picked = Object.values(OPENAI_CODEX_MODELS)[1]!.id;
+      await chatgpt.setPrefs(env, "u1", { model: picked });
+      const r = await chatgpt.complete(env, "u1", "You review forks.", "Review this diff.", o.f);
       expect(JSON.parse(r.text)).toMatchObject({ score: 82 });
       expect(r.model).toBe(picked);
     } finally {
@@ -130,7 +132,7 @@ describe("ChatGPT sign-in for reviews", () => {
     expect(call.headers.get("authorization")).toBe(`Bearer ${access}`);
     expect(call.headers.get("chatgpt-account-id")).toBe("acct_123");
     expect(o.refreshes()).toBe(0);
-    await chatgpt.setUseForReviews(env, "u1", false);
+    await chatgpt.setPrefs(env, "u1", { useForReviews: false });
     expect(await chatgpt.yardReviewer(env, "y1")).toBeNull();
   });
 });

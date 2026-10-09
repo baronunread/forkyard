@@ -59,7 +59,6 @@
         "FORK_TTL_HOURS": "24",
         "TOKEN_TTL_SECONDS": "14400",
         "REVIEW_MODEL": "@cf/moonshotai/kimi-k2.7-code",
-        "CHATGPT_MODEL": "gpt-5.6-luna",
         "PUBLIC_ORIGIN": "https://forkyard.baronunreadts.workers.dev",
         // Hard limits (src/limits.ts). Workers Paid has no spend cap, so these are it.
         // FORKYARD_PAUSED="true" (redeploy or dashboard var) stops new work at once.

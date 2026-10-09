@@ -104,7 +104,8 @@ export class PiAgent extends Agent<Env> {
   }
 
   private async pickModel(seat: PiAgentSeat): Promise<{ provider: string; id: string }> {
-    if (seat.ownerUserId && (await chatgpt.status(this.env, seat.ownerUserId)).connected) return { provider: chatgpt.CHATGPT, id: chatgpt.chatgptModel(this.env) };
+    const plan = seat.ownerUserId ? await chatgpt.status(this.env, seat.ownerUserId) : null;
+    if (plan?.connected) return { provider: chatgpt.CHATGPT, id: plan.model };
     if (this.env.AI) return { provider: "cloudflare", id: this.env.PI_AGENT_MODEL || WORKERS_AI_DEFAULT };
     return { provider: "scripted", id: "demo" };
   }
