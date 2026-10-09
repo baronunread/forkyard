@@ -5,6 +5,7 @@
  *   bun run e2e --cleanup       # also triggers the cron (wrangler dev --test-scheduled, FORK_TTL_HOURS=0)
  */
 import { execFile } from "node:child_process";
+import { chmod, symlink, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { MCP_TOOLS } from "../packages/shared/src/agents-md";
 import { BASE, Git, Mcp, api, arg } from "./lib";
@@ -139,18 +140,32 @@ async function rerunChecks(browser: Browser, y: string) {
   const make = async (title: string, name: string, autopilot: boolean) =>
     (await (await browser(`/api/yards/${y}/tasks`, { json: { title, autopilot, agents: [{ name, harness: "test" }] } })).json()) as Made;
   const get = async (id: string) => (await (await browser(`/api/yards/${y}/tasks/${id}`)).json()) as TaskDetail & { agents: { headCommit: string | null }[] };
-  const push = async (m: Made, name: string, text: string) => {
+  const push = async (m: Made, name: string, text: string, extra?: (g: Git) => Promise<void>) => {
     const ws = await new Mcp(m.credentials[0]!.apiKey).call<{ git: { remote: string; token: string } }>("workspace_get");
     await new Mcp(m.credentials[0]!.apiKey).call("intent_record", { summary: `Greet in ${name}'s words`, why: "The greeting should be friendly." });
     const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${y}-${name}`, ws.data.git.token, { name, email: `${name}@e` });
     await g.write("greeting.md", `# Greeting\n\n${text}\n`);
+    await extra?.(g);
     await g.commitAndPush("docs: greeting");
   };
   const first = await make("Write a greeting", "Lee", false);
   const second = await make("Write a warmer greeting", "Max", true);
-  await push(first, "Lee", "Hello there.");
+  // The winner's files land as they are: an executable stays executable, a symlink a symlink, bytes are bytes.
+  await push(first, "Lee", "Hello there.", async (g) => {
+    await g.write("greet.sh", "#!/bin/sh\necho hello\n");
+    await chmod(`${g.dir}/greet.sh`, 0o755);
+    await symlink("greeting.md", `${g.dir}/hello.md`);
+    await writeFile(`${g.dir}/pixel.bin`, new Uint8Array([0, 255, 1, 254, 0, 0, 137]));
+  });
   for (let i = 0; i < 60 && !(await get(first.task.id)).agents[0]?.headCommit; i++) await sleep(500);
   await browser(`/api/yards/${y}/tasks/${first.task.id}/decide`, { json: { mode: "winner", winnerAgentId: "lee" } });
+  const tree = (await (await browser(`/api/yards/${y}/code/tree?path=`)).json()) as { entries: { name: string; mode: string }[] };
+  const mode = (n: string) => tree.entries.find((e) => e.name === n)?.mode;
+  const pixel = (await (await browser(`/api/yards/${y}/code/file?path=pixel.bin`)).json()) as { size: number; binary: boolean };
+  check(
+    mode("greet.sh") === "100755" && mode("hello.md") === "120000" && pixel.size === 7,
+    `a merge keeps modes and bytes (greet.sh ${mode("greet.sh")}, hello.md ${mode("hello.md")}, pixel.bin ${pixel.size} B)`,
+  );
   await push(second, "Max", "Hello, friend. Good to see you.");
   let d = await get(second.task.id);
   for (let i = 0; i < 90 && d.task.status === "open"; i++) {

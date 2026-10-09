@@ -13,7 +13,7 @@ import {
 } from "@forkyard/shared";
 import { disposeRepo, getArtifacts, treeReader, type Repo } from "./artifacts";
 import { listAgents, newId, now } from "./db";
-import { commitTree, computeHunks, forkDiff, IGNORED_PREFIXES, mapLimit, readPathAt, treeChanges } from "./diff";
+import { commitTree, computeHunks, forkDiff, IGNORED_PREFIXES, mapLimit, MAX_FILES, readPathAt, treeChanges } from "./diff";
 import type { Env } from "./env";
 import { buildCommit, type FileChange } from "./git/build";
 import { utf8 } from "./git/objects";
@@ -71,11 +71,16 @@ async function preview(ctx: Ctx, input: DecideInput): Promise<DecidePreview> {
     const repo = await repoFor(ctx, input.winnerAgentId);
     const head = ctx.agents.get(input.winnerAgentId)!.headCommit!;
     const changed = await forkDiff(repo, ctx.task.baseCommit, head);
-    const out = await mapLimit(changed, 8, async (f): Promise<AssembledFile> => {
-      if (f.status === "deleted") return { path: f.path, status: "deleted", contents: null, fromAgents: [input.winnerAgentId] };
-      const r = await readPathAt(repo, head, f.path);
-      if (r.binary) throw new DecideError(`${f.path} is binary; binary files are not supported by the assembler yet`);
-      return { path: f.path, status: f.status, contents: r.text ?? "", fromAgents: [input.winnerAgentId] };
+    if (changed.length >= MAX_FILES) throw new DecideError(`the fork changes ${MAX_FILES}+ files; Forkyard merges at most ${MAX_FILES - 1} at once`, 409);
+    // The winner's files go in as they are: same bytes, same mode (scripts stay executable, symlinks stay links).
+    const out = changed.map((f): AssembledFile => {
+      const from = [input.winnerAgentId];
+      if (f.status === "deleted") return { path: f.path, status: "deleted", contents: null, fromAgents: from };
+      return { path: f.path, status: f.status, contents: "", fromAgents: from, mode: f.mode, blob: f.newHash! };
+    });
+    await mapLimit(out, 8, async (f) => {
+      if (!f.blob || changed.find((c) => c.path === f.path)!.binary) return;
+      f.contents = (await readPathAt(repo, head, f.path)).text ?? "";
     });
     files.push(...out);
     return { taskId: ctx.task.id, baseCommit: ctx.task.baseCommit, files, conflicts };
@@ -171,8 +176,20 @@ export async function applyDecision(
       if (clash.length)
         throw new DecideError(`base moved since this task started and also changed ${clash.join(", ")}; start a follow-up task from the new base`, 409);
     }
-    const changes = new Map<string, FileChange>(p.files.map((f) => [f.path, f.contents === null ? null : { contents: utf8(f.contents) }]));
     const agents = await listAgents(env.DB, yard.id, task.id);
+    const winner = input.mode === "winner" ? agents.find((a) => a.id === input.winnerAgentId) : undefined;
+    const fork = winner && p.files.some((f) => f.blob) ? await artifacts.get(winner.forkName) : null;
+    const changes = new Map<string, FileChange>();
+    try {
+      await mapLimit(p.files, 8, async (f) => {
+        if (f.contents === null) return void changes.set(f.path, null);
+        const blob = f.blob && fork ? await fork.readBlob(f.blob) : null;
+        if (f.blob && !blob) throw new DecideError(`${f.path} is missing from the winner's fork`, 409);
+        changes.set(f.path, { contents: blob ? new Uint8Array(await blob.arrayBuffer()) : utf8(f.contents), mode: f.mode });
+      });
+    } finally {
+      if (fork) disposeRepo(fork);
+    }
     const involved = agents.filter((a) => p.files.some((f) => f.fromAgents.includes(a.id)));
     const how =
       input.mode === "winner"

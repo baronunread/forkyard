@@ -179,6 +179,7 @@ export const ChangedFile = z.object({
   binary: z.boolean(),
   oldHash: z.string().nullable(),
   newHash: z.string().nullable(),
+  mode: z.string().optional(),
 });
 export type ChangedFile = z.infer<typeof ChangedFile>;
 
@@ -245,6 +246,10 @@ export const AssembledFile = z.object({
   status: FileStatus,
   contents: z.string().nullable(),
   fromAgents: z.array(Slug),
+  /** Git file mode to write; absent keeps the base's (or 100644 for a new file). */
+  mode: z.string().optional(),
+  /** Copied byte for byte from this blob in the winner's fork (binaries); `contents` is then empty. */
+  blob: z.string().optional(),
   /** Assembled from several agents: who wrote each line of `contents` (null: unchanged from base). */
   lineAgents: z.array(Slug.nullable()).optional(),
 });

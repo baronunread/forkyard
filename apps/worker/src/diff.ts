@@ -19,6 +19,8 @@ interface RawChange {
   status: FileStatus;
   oldHash: string | null;
   newHash: string | null;
+  /** The new entry's mode ("100755", "120000" for a symlink…); absent for deletions. */
+  mode?: string;
 }
 
 export async function commitTree(repo: Repo, commit: string): Promise<string> {
@@ -50,9 +52,9 @@ export async function treeChanges(repo: Repo, oldTree: string | null, newTree: s
     }
     const lFile = l && !lTree && l.type !== "gitlink";
     const rFile = r && !rTree && r.type !== "gitlink";
-    if (lFile && rFile) out.push({ path, status: "modified", oldHash: l!.hash, newHash: r!.hash });
+    if (lFile && rFile) out.push({ path, status: "modified", oldHash: l!.hash, newHash: r!.hash, mode: r!.mode });
     else if (lFile) out.push({ path, status: "deleted", oldHash: l!.hash, newHash: null });
-    else if (rFile) out.push({ path, status: "added", oldHash: null, newHash: r!.hash });
+    else if (rFile) out.push({ path, status: "added", oldHash: null, newHash: r!.hash, mode: r!.mode });
   }
   for (const n of await Promise.all(nested)) out.push(...n);
   return out.sort((x, y) => x.path.localeCompare(y.path));

@@ -25,6 +25,8 @@ export interface CodeEntry {
   name: string;
   path: string;
   type: "tree" | "blob";
+  /** Git mode: "100755" executable, "120000" symlink. */
+  mode: string;
   last: Change | null;
 }
 
@@ -112,7 +114,7 @@ export async function codeTree(env: Env, p: Principal, yardId: string, path: str
     const prefix = path ? `${path.replace(/\/$/, "")}/` : "";
     const entries = raw
       .filter((e) => e.type !== "gitlink")
-      .map((e) => ({ name: e.name, path: prefix + e.name, type: e.type === "tree" ? ("tree" as const) : ("blob" as const) }))
+      .map((e) => ({ name: e.name, path: prefix + e.name, type: e.type === "tree" ? ("tree" as const) : ("blob" as const), mode: e.mode }))
       .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "tree" ? -1 : 1));
     const last = await lastTouched(repo, log, [...entries.map((e) => e.path), ...(path ? [path] : [])]);
     const readmeEntry = raw.find((e) => e.type !== "tree" && README.test(e.name));
