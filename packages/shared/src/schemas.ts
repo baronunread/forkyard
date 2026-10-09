@@ -380,6 +380,12 @@ export const IntentInput = z.object({
 });
 export type IntentInput = z.infer<typeof IntentInput>;
 
+/** A plan before code: what and why, plus the files the agent expects to touch. */
+export const PlanInput = IntentInput.extend({
+  files: z.array(z.string().min(1).max(300)).min(1).max(100),
+});
+export type PlanInput = z.infer<typeof PlanInput>;
+
 export const ClaimInput = z.object({
   paths: z.array(z.string().min(1).max(300)).min(1).max(100),
 });

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Where you are on a task page, kept in the URL: ?agent=&file=&view= */
-export const TASK_VIEWS = ["changes", "compare", "activity", "decide"] as const;
+export const TASK_VIEWS = ["plans", "changes", "compare", "activity", "decide"] as const;
 export const TaskSearch = z.object({
   agent: z.string().optional(),
   file: z.string().optional(),

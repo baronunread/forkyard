@@ -119,6 +119,9 @@ export class Yard extends DurableObject<Env> {
         task_id TEXT NOT NULL, agent_id TEXT NOT NULL, pattern TEXT NOT NULL, created_at TEXT NOT NULL,
         PRIMARY KEY (task_id, agent_id, pattern)
       );
+      CREATE TABLE IF NOT EXISTS agent_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, agent_id TEXT NOT NULL, text TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS reviews_pending (
         task_id TEXT NOT NULL, agent_id TEXT NOT NULL, queued_at INTEGER NOT NULL,
         PRIMARY KEY (task_id, agent_id)
@@ -587,7 +590,36 @@ export class Yard extends DurableObject<Env> {
       }));
   }
 
-  async claim(taskId: string, agentId: string, patterns: string[]): Promise<{ claims: Claim[]; overlaps: Overlap[] }> {
+  /**
+   * Plans before code: what the agent means to do and the files it expects to touch, in one
+   * step. Agents planning the same files hear about each other before either writes a line.
+   */
+  async plan(taskId: string, agentId: string, input: IntentInput & { files: string[] }): Promise<{ intent: Intent; claims: Claim[]; overlaps: Overlap[]; notes: string[] }> {
+    await this.assertOpen(taskId);
+    const intent = await this.recordIntent(taskId, agentId, input, "mcp");
+    return { intent, ...(await this.claim(taskId, agentId, input.files)) };
+  }
+
+  /** What Forkyard has to tell an agent since its last call (overlaps others started), once. */
+  takeNotes(taskId: string, agentId: string): string[] {
+    const rows = this.sql.exec<{ text: string }>("DELETE FROM agent_notes WHERE task_id = ? AND agent_id = ? RETURNING text", taskId, agentId).toArray();
+    return rows.map((r) => r.text);
+  }
+
+  /** "Bo also plans to change src/auth.ts (Bo's plan: “Sessions in D1”)." */
+  private describeOverlap(you: string, o: Overlap, names: Map<string, string>, intents: Map<string, Intent>): string {
+    const others = o.agents.filter((a) => a !== you);
+    const who = others.slice(0, 3).map((a) => names.get(a) ?? a);
+    const more = others.length > 3 ? ` and ${others.length - 3} more` : "";
+    const plans = others
+      .slice(0, 3)
+      .filter((a) => intents.has(a))
+      .map((a) => `${names.get(a) ?? a}'s plan: “${intents.get(a)!.summary}”`);
+    const verb = o.kind === "change" ? "also changed" : others.length === 1 ? "also plans to change" : "also plan to change";
+    return `${who.join(", ")}${more} ${verb} ${o.path}${plans.length ? ` (${plans.join("; ")})` : ""}. Coordinate: narrow your plan, take a different approach, or say in your intent how the two fit.`;
+  }
+
+  async claim(taskId: string, agentId: string, patterns: string[]): Promise<{ claims: Claim[]; overlaps: Overlap[]; notes: string[] }> {
     await this.assertOpen(taskId);
     const createdAt = now();
     const added: Claim[] = [];
@@ -601,10 +633,15 @@ export class Yard extends DurableObject<Env> {
     }
     if (added.length) await this.append({ type: "claim.added", taskId, agentId, data: { claims: added } });
     await this.markWorking(taskId, agentId, "claimed paths");
-    await this.recomputeOverlaps(taskId);
+    await this.recomputeOverlaps(taskId, agentId);
+    const overlaps = this.overlapsFor(taskId).filter((o) => o.active && o.agents.includes(agentId));
+    const yard = await this.yard();
+    const names = new Map((await listAgents(this.env.DB, yard.id, taskId)).map((a) => [a.id, a.name]));
+    const intents = overlaps.length ? await latestIntents(this.env.DB, yard.id, taskId) : new Map<string, Intent>();
     return {
       claims: this.claimsFor(taskId).filter((c) => c.agentId === agentId),
-      overlaps: this.overlapsFor(taskId).filter((o) => o.active && o.agents.includes(agentId)),
+      overlaps,
+      notes: overlaps.map((o) => this.describeOverlap(agentId, o, names, intents)),
     };
   }
 
@@ -617,7 +654,8 @@ export class Yard extends DurableObject<Env> {
     return { released: target, overlaps: this.overlapsFor(taskId).filter((o) => o.active && o.agents.includes(agentId)) };
   }
 
-  private async recomputeOverlaps(taskId: string): Promise<void> {
+  /** `by`: the agent whose call caused this; it reads the overlap in its own answer. */
+  private async recomputeOverlaps(taskId: string, by: string | null = null): Promise<void> {
     const yard = await this.yard();
     const agents = (await listAgents(this.env.DB, yard.id, taskId)).filter((a) => a.status !== "failed" && a.status !== "retired");
     const claims = this.claimsFor(taskId);
@@ -631,6 +669,8 @@ export class Yard extends DurableObject<Env> {
     );
     const current = new Map(this.overlapsFor(taskId).map((o) => [o.key, o]));
     const seen = new Set<string>();
+    const names = new Map(agents.map((a) => [a.id, a.name]));
+    let intents: Map<string, Intent> | undefined;
     for (const d of detected) {
       seen.add(d.key);
       const prev = current.get(d.key);
@@ -662,7 +702,13 @@ export class Yard extends DurableObject<Env> {
       const joined = d.agents.filter((a) => !before.has(a));
       const crossed = OVERLAP_MILESTONES.some((m) => before.size < m && d.agents.length >= m);
       if (!prev?.active || crossed) await this.append({ type: "overlap.detected", taskId, agentId: null, data: { overlap } });
-      for (const a of joined) this.sendToAgent(taskId, a, { kind: "overlap", overlap, you: a });
+      intents ??= await latestIntents(this.env.DB, yard.id, taskId);
+      for (const a of joined) {
+        this.sendToAgent(taskId, a, { kind: "overlap", overlap, you: a });
+        // Agents on MCP or in the cloud hold no socket: they read it on their next call.
+        // ponytail: one note per agent per overlap; a thousand-agent hot file is a thousand rows.
+        if (a !== by) this.sql.exec("INSERT INTO agent_notes (task_id, agent_id, text) VALUES (?, ?, ?)", taskId, a, this.describeOverlap(a, overlap, names, intents));
+      }
     }
     for (const [key, prev] of current) {
       if (!prev.active || seen.has(key)) continue;
@@ -906,6 +952,7 @@ export class Yard extends DurableObject<Env> {
       this.env.DB.prepare("UPDATE backlog_items SET status = 'done' WHERE yard_id = ? AND task_id = ?").bind(yard.id, decision.taskId),
     ]);
     this.sql.exec("DELETE FROM claims WHERE task_id = ?", decision.taskId);
+    this.sql.exec("DELETE FROM agent_notes WHERE task_id = ?", decision.taskId);
     this.sql.exec("UPDATE overlaps SET active = 0 WHERE task_id = ?", decision.taskId);
     this.sql.exec("DELETE FROM fork_tokens WHERE task_id = ?", decision.taskId);
     if (decision.decidedBy === "autopilot") this.setAutopilot(decision.taskId, "merged");
@@ -929,6 +976,7 @@ export class Yard extends DurableObject<Env> {
       this.env.DB.prepare("UPDATE backlog_items SET status = 'open' WHERE yard_id = ? AND task_id = ? AND status = 'started'").bind(yard.id, taskId),
     ]);
     this.sql.exec("DELETE FROM claims WHERE task_id = ?", taskId);
+    this.sql.exec("DELETE FROM agent_notes WHERE task_id = ?", taskId);
     this.sql.exec("UPDATE overlaps SET active = 0 WHERE task_id = ?", taskId);
     this.sql.exec("DELETE FROM fork_tokens WHERE task_id = ?", taskId);
     await this.append({ type: "task.abandoned", taskId, agentId: null, data: { reason } });

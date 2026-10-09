@@ -16,6 +16,7 @@ import {
   type FileCompare,
   type ForkDiff,
   type IntentInput,
+  type PlanInput,
   type Overlap,
   type Review,
   type Intent,
@@ -370,6 +371,18 @@ export async function claimPaths(env: Env, p: Principal, yardId: string, taskId:
   const id = await actingAgent(env, p, yardId, taskId, input.agentId);
   const yard = await mustYard(env, yardId);
   return yardStub(env, yard).claim(taskId, id, input.paths);
+}
+
+export async function planRecord(env: Env, p: Principal, yardId: string, taskId: string, input: PlanInput & { agentId?: string }) {
+  const id = await actingAgent(env, p, yardId, taskId, input.agentId);
+  const yard = await mustYard(env, yardId);
+  return yardStub(env, yard).plan(taskId, id, input);
+}
+
+/** Overlaps other agents started since this agent's last call, each once. */
+export async function agentNotes(env: Env, yardId: string, taskId: string, agentId: string): Promise<string[]> {
+  const yard = await mustYard(env, yardId);
+  return yardStub(env, yard).takeNotes(taskId, agentId);
 }
 
 export async function releasePaths(env: Env, p: Principal, yardId: string, taskId: string, input: { paths?: string[]; agentId?: string }) {

@@ -9,6 +9,7 @@ export const MCP_TOOLS = [
   ["yard_status", "Active tasks, agents, claims, overlaps and recent events."],
   ["task_create", "Create a task and fan it out to N agents, each with its own fork."],
   ["workspace_get", "Your fork's git remote + scoped token, AGENTS.md, the task brief, and a digest of the other agents."],
+  ["plan", "Before you edit: say what you'll do, why, and which files you expect to touch. Agents planning the same files are told about each other (with each other's plans) before either writes."],
   ["claim_paths", "Declare files/globs you intend to touch. Returns current overlaps."],
   ["release_paths", "Drop claims you no longer need."],
   ["intent_record", "Record what you are doing and why. Attached to your next push."],

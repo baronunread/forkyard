@@ -1,6 +1,6 @@
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { AskInput, ClaimInput, CreateTaskInput, CreateYardInput, DecideInput, describeEvent, IntentInput, MCP_TOOLS } from "@forkyard/shared";
+import { AskInput, ClaimInput, CreateTaskInput, CreateYardInput, DecideInput, describeEvent, IntentInput, MCP_TOOLS, PlanInput } from "@forkyard/shared";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Principal } from "./auth";
@@ -43,17 +43,21 @@ function fail(err: unknown) {
   return { isError: true, content: [{ type: "text" as const, text: `${e.status}: ${e.message}` }] };
 }
 
-function wrap<A>(fn: (args: A) => Promise<ReturnType<typeof ok>>) {
-  return async (args: A) => {
-    try {
-      return await fn(args);
-    } catch (err) {
-      return fail(err);
-    }
-  };
-}
-
 export function buildMcpServer(env: Env, p: Principal, origin: string): McpServer {
+  /** Every answer to an agent seat also carries what changed around it since its last call. */
+  const wrap =
+    <A,>(fn: (args: A) => Promise<ReturnType<typeof ok>>) =>
+    async (args: A) => {
+      try {
+        const res = await fn(args);
+        if (p.kind !== "agent") return res;
+        const notes = await svc.agentNotes(env, p.yardId, p.taskId, p.agentId).catch(() => []);
+        if (notes.length) res.content.push({ type: "text", text: `Since your last call:\n${notes.map((n) => `⚠ ${n}`).join("\n")}` });
+        return res;
+      } catch (err) {
+        return fail(err);
+      }
+    };
   const server = new McpServer(
     { name: "forkyard", version: "0.1.0" },
     {
@@ -152,9 +156,7 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
     wrap(async (a) => {
       const s = resolve(p, a);
       const r = await svc.claimPaths(env, p, s.yardId, s.taskId, { paths: a.paths, agentId: s.agentId });
-      const warn = r.overlaps.length
-        ? `\n\n⚠ ${r.overlaps.length} overlap(s): ${r.overlaps.map((o) => `${o.path} with ${o.agents.filter((x) => x !== s.agentId).join(", ")}`).join("; ")}. Coordinate or narrow your claim.`
-        : "\n\nNo overlaps.";
+      const warn = r.notes.length ? `\n\n${r.notes.map((n) => `⚠ ${n}`).join("\n")}` : "\n\nNo overlaps.";
       return ok(r, `Claimed: ${r.claims.map((c) => c.pattern).join(", ")}${warn}`);
     }),
   );
@@ -165,6 +167,17 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
     wrap(async (a) => {
       const s = resolve(p, a);
       return ok(await svc.releasePaths(env, p, s.yardId, s.taskId, { paths: a.paths, agentId: s.agentId }));
+    }),
+  );
+
+  server.registerTool(
+    "plan",
+    { description: desc.plan, inputSchema: PlanInput.extend({ ...scope, agentId: z.string().optional() }) },
+    wrap(async (a) => {
+      const s = resolve(p, a);
+      const r = await svc.planRecord(env, p, s.yardId, s.taskId, { summary: a.summary, why: a.why, details: a.details, files: a.files, agentId: s.agentId });
+      const warn = r.notes.length ? `${r.notes.map((n) => `⚠ ${n}`).join("\n")}` : "Nobody else plans to touch these files.";
+      return ok(r, `Plan recorded: ${r.intent.summary}\nFiles: ${r.claims.map((c) => c.pattern).join(", ")}\n\n${warn}`);
     }),
   );
 

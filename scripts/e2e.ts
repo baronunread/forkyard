@@ -88,6 +88,23 @@ async function autopilotChecks() {
   } else check(d.task.status === "decided" && d.decision?.decidedBy === "autopilot", "autopilot merged the best fork once the agents settled");
 }
 
+/** Plans before code: two agents planning the same file both hear about it, naming each other. */
+async function planChecks() {
+  const t = await api<{ task: { id: string }; credentials: { agentId: string; apiKey: string }[] }>(`/yards/${yardId}/tasks`, {
+    body: { title: "Plan probe", autopilot: false, agents: [{ name: "Cy", harness: "test" }, { name: "Di", harness: "test" }] },
+  });
+  const [cy, di] = t.credentials.map((c) => new Mcp(c.apiKey)) as [Mcp, Mcp];
+  const first = await cy.call("plan", { summary: "Cache sessions in KV", why: "Reads dominate.", files: ["src/session.ts"] });
+  const second = await di.call("plan", { summary: "Move sessions to D1", why: "One store is simpler.", files: ["src/session.ts", "src/db.ts"] });
+  check(first.text.includes("Nobody else"), "the first plan on a file hears nothing");
+  check(second.text.includes("Cy also plans to change src/session.ts") && second.text.includes("Cache sessions in KV"), "the second planner is told who else plans that file, and their plan");
+  const later = await cy.call("events_since", { since: 0, limit: 1 });
+  check(later.text.includes("Since your last call") && later.text.includes("Di also plans to change src/session.ts") && later.text.includes("Move sessions to D1"), "the first planner hears about the second on their next call");
+  const again = await cy.call("events_since", { since: 0, limit: 1 });
+  check(!again.text.includes("Since your last call"), "each note is delivered once");
+  await api(`/yards/${yardId}/tasks/${t.task.id}/abandon`, { body: { reason: "probe" } });
+}
+
 type Browser = (path: string, init?: { method?: string; json?: unknown }) => Promise<Response>;
 
 /**
@@ -301,6 +318,7 @@ async function main() {
   await oauthChecks(t2.task.id);
 
   await autopilotChecks();
+  await planChecks();
   await cloudAgentChecks();
   await backlogChecks();
 

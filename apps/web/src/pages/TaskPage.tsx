@@ -9,6 +9,7 @@ import { AgentStrip } from "../components/AgentStrip";
 import { AgentView } from "../components/AgentView";
 import { CompareView } from "../components/CompareView";
 import { DecideView } from "../components/DecideView";
+import { PlansView } from "../components/PlansView";
 import { FileTreePane } from "../components/FileTreePane";
 import { AskCard } from "../components/AskCard";
 import { TaskStatusBadge } from "../components/Status";
@@ -38,7 +39,9 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
   const [wrap, setWrap] = usePersistent<boolean>("forkyard.wrap", false);
   const [now, setNow] = useState(Date.now());
   const diffStyle = split ? "split" : "unified";
-  const view: View = search.view ?? "changes";
+  // Before anyone pushes, the plans are the interesting part.
+  const pushed = detail.data?.agents.some((a) => a.headCommit) ?? true;
+  const view: View = search.view ?? (pushed ? "changes" : "plans");
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 10_000);
@@ -58,7 +61,7 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
   /** Everything about where you are on this page lives in the URL (?agent=&file=&view=). */
   const go = (patch: Partial<TaskSearch>) =>
     void navigate({ to: "/$owner/$yard/t/$task", params: { ...yardParams(yard), task }, search: (s: TaskSearch) => ({ ...s, ...patch }), replace: true });
-  const setView = (v: View) => go({ view: v === "changes" ? undefined : v });
+  const setView = (v: View) => go({ view: v });
 
   // Keyboard: [ ] agents, 1-9 forks, j/k hunks, a/c/l/d views, s split, w wrap.
   const mainRef = useRef<HTMLDivElement>(null);
@@ -81,20 +84,22 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
     { hotkey: "[", callback: () => agents.length && go({ agent: agents[(idx - 1 + agents.length) % agents.length]!.id }) },
     { hotkey: "J", callback: () => moveHunk(1) },
     { hotkey: "K", callback: () => moveHunk(-1) },
+    { hotkey: "P", callback: () => setView("plans") },
     { hotkey: "A", callback: () => setView("changes") },
     { hotkey: "C", callback: () => setView("compare") },
     { hotkey: "L", callback: () => setView("activity") },
     { hotkey: "D", callback: () => setView("decide") },
     { hotkey: "S", callback: () => setSplit(!split) },
     { hotkey: "W", callback: () => setWrap(!wrap) },
-    ...(["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const).map((k, i) => ({ hotkey: k, callback: () => agents[i] && go({ agent: agents[i].id, view: undefined }) })),
+    ...(["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const).map((k, i) => ({ hotkey: k, callback: () => agents[i] && go({ agent: agents[i].id, view: "changes" }) })),
   ];
   useHotkeys(keys, { preventDefault: true });
 
   useCommands(
     "task",
     [
-      ...agents.map((a, i) => ({ id: `agent-${a.id}`, group: "Agents", title: `${a.name}'s changes`, hint: i < 9 ? String(i + 1) : undefined, run: () => go({ agent: a.id, view: undefined }) })),
+      ...agents.map((a, i) => ({ id: `agent-${a.id}`, group: "Agents", title: `${a.name}'s changes`, hint: i < 9 ? String(i + 1) : undefined, run: () => go({ agent: a.id, view: "changes" }) })),
+      { id: "view-plans", group: "View", title: "Plans", hint: "p", run: () => setView("plans") },
       { id: "view-agent", group: "View", title: "Changes", hint: "a", run: () => setView("changes") },
       { id: "view-compare", group: "View", title: "Compare a file across agents", hint: "c", run: () => setView("compare") },
       { id: "view-activity", group: "View", title: "Activity", hint: "l", run: () => setView("activity") },
@@ -149,9 +154,9 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
           <TaskState yard={yard} detail={d} />
         )}
         {agents.length > SWARM_THRESHOLD ? (
-          <AgentBoard detail={d} compare={compare.data ?? null} selected={selectedAgent?.id ?? null} onSelect={(id) => go({ agent: id, view: undefined })} />
+          <AgentBoard detail={d} compare={compare.data ?? null} selected={selectedAgent?.id ?? null} onSelect={(id) => go({ agent: id, view: "changes" })} />
         ) : (
-          <AgentStrip detail={d} selected={view === "changes" ? (selectedAgent?.id ?? null) : null} onSelect={(id) => go({ agent: id, view: undefined })} />
+          <AgentStrip detail={d} selected={view === "changes" ? (selectedAgent?.id ?? null) : null} onSelect={(id) => go({ agent: id, view: "changes" })} />
         )}
       </div>
 
@@ -179,12 +184,13 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
                 value={view}
                 onValueChange={(v) => setView(v as View)}
                 tabs={[
+                  { value: "plans", label: "Plans" },
                   { value: "changes", label: "Changes" },
                   { value: "compare", label: "Compare" },
                   { value: "activity", label: "Activity" },
                 ]}
               />
-              {view !== "activity" && (
+              {view !== "activity" && view !== "plans" && (
                 <Tabs
                   size="sm"
                   variant="segmented"
@@ -198,6 +204,7 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
               )}
             </div>
           )}
+          {view === "plans" && <PlansView detail={d} />}
           {view === "changes" && selectedAgent && (
             <AgentView yard={yard} task={task} agent={selectedAgent} compare={compare.data ?? null} diffStyle={diffStyle} wrap={wrap} focusFile={selectedFile} />
           )}

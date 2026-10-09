@@ -47,6 +47,7 @@ const Write = Type.Object({ path: Type.String(), content: Type.String({ descript
 const List = Type.Object({ prefix: Type.Optional(Type.String({ description: "Only paths starting with this" })) });
 const Claim = Type.Object({ paths: Type.Array(Type.String(), { description: "Files or globs you will change" }) });
 const Intent = Type.Object({ summary: Type.String(), why: Type.String() });
+const Plan = Type.Object({ summary: Type.String(), why: Type.String(), files: Type.Array(Type.String(), { description: "Files or globs you expect to change" }) });
 const Push = Type.Object({ message: Type.String({ description: "Commit message" }) });
 const Ask = Type.Object({ question: Type.String(), options: Type.Optional(Type.Array(Type.String())) });
 
@@ -164,7 +165,7 @@ export class PiAgent extends Agent<Env> {
     return [
       "You are a cloud agent in Forkyard, working alone in your own fork of the repo. Other agents attempt the same task in their forks; the best-reviewed fork is merged automatically.",
       "You have no shell: use the tools to list, read and write files, then push. Writes are staged until you push.",
-      "Claim the files you'll change before editing, record your intent before pushing, keep the change focused, and push when it's done.",
+      "Plan before you edit: call plan with what you'll do, why, and the files you expect to touch. If another agent plans the same files, adjust. Keep the change focused, and push when it's done.",
       "Only call ask_human when you are truly blocked on something a person must decide; otherwise decide yourself.",
       AGENTS_MD_TEMPLATE,
     ].join("\n\n");
@@ -194,7 +195,13 @@ export class PiAgent extends Agent<Env> {
         this.ctx.waitUntil(this.harness.session().abort());
         throw new Error(`Stopped: ${over}.`);
       }
-      return execute(...args);
+      const res = await execute(...args);
+      // Overlaps other agents started since the last call arrive with the next tool result.
+      const out = res as { content?: { type: string; text: string }[] };
+      const seat = this.seat();
+      const notes = Array.isArray(out?.content) ? await (await this.yardOf(seat)).takeNotes(seat.taskId, seat.agentId) : [];
+      if (notes.length) out.content!.push({ type: "text", text: `Since your last call:\n${notes.join("\n")}` });
+      return res;
     };
   }
 
@@ -278,7 +285,17 @@ export class PiAgent extends Agent<Env> {
       execute: async ({ paths }) => {
         const seat = this.seat();
         const r = await (await this.yardOf(seat)).claim(seat.taskId, seat.agentId, paths);
-        return text(r.overlaps.length ? `Claimed. Overlaps: ${r.overlaps.map((o) => `${o.path} (${o.agents.join(", ")})`).join("; ")}` : "Claimed. No overlaps.");
+        return text(r.notes.length ? `Claimed.\n${r.notes.join("\n")}` : "Claimed. No overlaps.");
+      },
+    };
+    const plan: ToolRegistration<typeof Plan> = {
+      name: "plan",
+      description: "Before you edit: what you'll do, why, and the files you expect to touch. Tells you (and them) about other agents planning the same files.",
+      parameters: Plan,
+      execute: async ({ summary, why, files }) => {
+        const seat = this.seat();
+        const r = await (await this.yardOf(seat)).plan(seat.taskId, seat.agentId, { summary, why, files });
+        return text(r.notes.length ? `Plan recorded.\n${r.notes.join("\n")}` : "Plan recorded. Nobody else plans to touch these files.");
       },
     };
     const intent: ToolRegistration<typeof Intent> = {
@@ -333,7 +350,7 @@ export class PiAgent extends Agent<Env> {
         return text("Asked. Carry on with anything that doesn't depend on the answer.");
       },
     };
-    return ([list, read, write, del, claim, intent, push, ask] as ToolRegistration[]).map((t) => ({ ...t, execute: this.metered(t.execute) }));
+    return ([list, read, write, del, plan, claim, intent, push, ask] as ToolRegistration[]).map((t) => ({ ...t, execute: this.metered(t.execute) }));
   }
 }
 

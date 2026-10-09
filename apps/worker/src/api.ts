@@ -3,6 +3,7 @@ import {
   AnswerInput,
   AskInput,
   ClaimInput,
+  PlanInput,
   CreateTaskInput,
   FileBacklogInput,
   ImportIssuesInput,
@@ -270,6 +271,10 @@ export const api = new Hono<HonoEnv>()
       return c.json(await svc.releasePaths(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }));
     },
   )
+  .post("/yards/:yard/tasks/:task/agents/:agent/plan", zValidator("param", agentParam), zValidator("json", PlanInput), async (c) => {
+    const { yard, task, agent } = c.req.valid("param");
+    return c.json(await svc.planRecord(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }), 201);
+  })
   .post("/yards/:yard/tasks/:task/agents/:agent/intents", zValidator("param", agentParam), zValidator("json", IntentInput), async (c) => {
     const { yard, task, agent } = c.req.valid("param");
     return c.json(await svc.intentRecord(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }), 201);
