@@ -100,6 +100,7 @@ export function TopBar({ onPalette }: { onPalette: () => void }) {
               <DropdownMenu.Separator />
               <DropdownMenu.Item onClick={() => void navigate({ to: "/" })}>Overview</DropdownMenu.Item>
               <DropdownMenu.Item onClick={() => void navigate({ to: "/bench" })}>Benchmarks</DropdownMenu.Item>
+              <DropdownMenu.Item onClick={() => void navigate({ to: "/settings" })}>Settings and limits</DropdownMenu.Item>
               <DropdownMenu.Item onClick={() => setChatgpt(true)}>ChatGPT for reviews…</DropdownMenu.Item>
               <DropdownMenu.LinkItem href="/llms.txt" target="_blank">
                 Agent docs

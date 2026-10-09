@@ -16,6 +16,7 @@ import { ME, origin, recordSeatChoice, sessionFor } from "./better-auth";
 import * as chatgpt from "./chatgpt";
 import type { Env } from "./env";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
+import { limitsReport } from "./limits";
 import * as svc from "./service";
 
 export type HonoEnv = { Bindings: Env; Variables: { principal: Principal } };
@@ -43,6 +44,8 @@ export const api = new Hono<HonoEnv>()
       artifactsMode: c.env.ARTIFACTS_MODE === "local" || !c.env.ARTIFACTS ? "local" : "remote",
     });
   })
+
+  .get("/me/limits", async (c) => c.json(await limitsReport(c.env, c.get("principal"))))
 
   // ── your own model subscription (ChatGPT, through pi-ai), used for reviews in yards you own ──
   .get("/me/models/chatgpt", async (c) => c.json(await chatgpt.status(c.env, await personOf(c.env, c.req.raw))))

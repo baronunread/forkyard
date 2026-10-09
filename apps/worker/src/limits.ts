@@ -67,3 +67,36 @@ export async function spendWorkersAi(env: Env): Promise<boolean> {
   const l = limits(env);
   return !l.paused && (await spend(env, "workers-ai", l.workersAiPerDay));
 }
+
+/** The limits and today's use, for the settings page. `limit: null` = no cap on this deployment. */
+export async function limitsReport(env: Env, p: Principal) {
+  const l = limits(env);
+  const day = new Date().toISOString().slice(0, 10);
+  const userId = p.kind === "user" ? p.userId : null;
+  const used = (key: string) => env.DB.prepare("SELECT n FROM usage WHERE day = ? AND key = ?").bind(day, key).first<{ n: number }>().then((r) => r?.n ?? 0);
+  const [yards, tasks, forks, ai] = await Promise.all([
+    userId ? env.DB.prepare("SELECT COUNT(*) AS n FROM yard_members WHERE user_id = ? AND role = 'owner'").bind(userId).first<{ n: number }>().then((r) => r?.n ?? 0) : null,
+    userId ? used(`tasks:${userId}`) : null,
+    env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE fork_deleted_at IS NULL AND status != 'failed'").first<{ n: number }>().then((r) => r?.n ?? 0),
+    used("workers-ai"),
+  ]);
+  const row = (key: string, label: string, scope: "account" | "deployment", limit: number, used: number | null, hint: string) => ({
+    key,
+    label,
+    scope,
+    limit: limit === Infinity ? null : limit,
+    used,
+    hint,
+  });
+  return {
+    paused: l.paused,
+    limits: [
+      row("yards", "Yards you own", "account", l.yardsPerAccount, yards, "Each yard you create counts."),
+      row("tasks", "Tasks started today", "account", l.tasksPerAccountPerDay, tasks, "Resets at midnight UTC."),
+      row("agents", "Agents per task", "deployment", l.agentsPerTask, null, "How many agents one task can fan out to."),
+      row("forks", "Live forks", "deployment", l.liveForks, forks, "Deciding or abandoning a task frees its forks."),
+      row("turns", "Turns per cloud agent", "deployment", l.agentTurns, null, "A cloud agent is stopped after this many tool calls."),
+      row("ai", "Workers AI calls today", "deployment", l.workersAiPerDay, ai, "Reviews and cloud agents on Workers AI. ChatGPT doesn't count."),
+    ],
+  };
+}

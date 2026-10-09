@@ -66,7 +66,16 @@
         "FORK_TTL_HOURS": "24",
         "TOKEN_TTL_SECONDS": "14400",
         "REVIEW_MODEL": "@cf/moonshotai/kimi-k2.7-code",
-        "PUBLIC_ORIGIN": "https://forkyard.example.com"
+        "PUBLIC_ORIGIN": "https://forkyard.baronunreadts.workers.dev",
+        // Hard limits (src/limits.ts). Workers Paid has no spend cap, so these are it.
+        // FORKYARD_PAUSED="true" (redeploy or dashboard var) stops new work at once.
+        "FORKYARD_PAUSED": "false",
+        "LIMIT_YARDS_PER_ACCOUNT": "3",
+        "LIMIT_TASKS_PER_ACCOUNT_PER_DAY": "20",
+        "LIMIT_AGENTS_PER_TASK": "5",
+        "LIMIT_LIVE_FORKS": "50",
+        "LIMIT_AGENT_TURNS": "40",
+        "LIMIT_WORKERS_AI_PER_DAY": "200"
         // Secrets (wrangler secret put --env production):
         //   BETTER_AUTH_SECRET                       signs sessions and OAuth state (openssl rand -base64 32)
         //   GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET   GitHub sign-in (callback: <origin>/api/auth/callback/github)
@@ -81,7 +90,7 @@
       ],
       "ai": { "binding": "AI" },
       "d1_databases": [
-        { "binding": "DB", "database_name": "forkyard", "database_id": "REPLACE_WITH_D1_DATABASE_ID", "migrations_dir": "migrations" }
+        { "binding": "DB", "database_name": "forkyard", "database_id": "4b3fcbf6-77fc-4ffd-aea6-a675cba9f8eb", "migrations_dir": "migrations" }
       ],
       "durable_objects": {
         "bindings": [
@@ -92,7 +101,7 @@
       },
       "queues": {
         "producers": [{ "binding": "ARTIFACT_EVENTS", "queue": "forkyard-artifact-events" }],
-        "consumers": [{ "queue": "forkyard-artifact-events", "max_batch_size": 100, "max_batch_timeout": 1, "max_retries": 5, "max_concurrency": 250 }]
+        "consumers": [{ "queue": "forkyard-artifact-events", "max_batch_size": 100, "max_batch_timeout": 1, "max_retries": 5, "max_concurrency": 10 }]
       },
       "workflows": [{ "name": "forkyard-review", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" }],
       "triggers": { "crons": ["17 * * * *"] }

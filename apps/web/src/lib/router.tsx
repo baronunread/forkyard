@@ -7,6 +7,7 @@ import { BenchPage } from "../pages/BenchPage";
 import { Connect } from "../pages/Connect";
 import { Login } from "../pages/Login";
 import { Overview } from "../pages/Overview";
+import { SettingsPage } from "../pages/SettingsPage";
 import { TaskPage } from "../pages/TaskPage";
 import { oauthInFlight } from "./auth-client";
 import { meQuery, queryClient } from "./queries";
@@ -23,6 +24,7 @@ import { toasts } from "./toast";
  *   /y/$yard                  the same, with that yard selected
  *   /y/$yard/t/$task          a task (?agent=&file=&view=)
  *   /bench                    benchmarks
+ *   /settings                 your account and the deployment's limits
  *
  * Everything under the `app` layout needs a signed-in person (checked in beforeLoad).
  */
@@ -100,7 +102,9 @@ const taskRoute = createRoute({
 
 const benchRoute = createRoute({ getParentRoute: () => appRoute, path: "/bench", component: BenchPage });
 
-const routeTree = rootRoute.addChildren([loginRoute, connectRoute, appRoute.addChildren([indexRoute, yardRoute, taskRoute, benchRoute])]);
+const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: "/settings", component: SettingsPage });
+
+const routeTree = rootRoute.addChildren([loginRoute, connectRoute, appRoute.addChildren([indexRoute, yardRoute, taskRoute, benchRoute, settingsRoute])]);
 
 export const router = createRouter({
   routeTree,
