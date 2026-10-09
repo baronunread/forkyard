@@ -130,6 +130,41 @@ async function chatgptChecks(browser: Browser) {
   const off = (await (await browser("/api/me/models/chatgpt", { method: "PUT", json: { useForReviews: false } })).json()) as { useForReviews: boolean };
   const gone = (await (await browser("/api/me/models/chatgpt", { method: "DELETE" })).json()) as { connected: boolean };
   check(!off.useForReviews && !gone.connected, "ChatGPT reviews can be turned off and disconnected");
+  await rerunChecks(browser, y);
+}
+
+/** Two tasks change the same file; the one that loses the race is re-run from the new base, not handed to a person. */
+async function rerunChecks(browser: Browser, y: string) {
+  type Made = { task: { id: string }; credentials: { apiKey: string }[] };
+  const make = async (title: string, name: string, autopilot: boolean) =>
+    (await (await browser(`/api/yards/${y}/tasks`, { json: { title, autopilot, agents: [{ name, harness: "test" }] } })).json()) as Made;
+  const get = async (id: string) => (await (await browser(`/api/yards/${y}/tasks/${id}`)).json()) as TaskDetail & { agents: { headCommit: string | null }[] };
+  const push = async (m: Made, name: string, text: string) => {
+    const ws = await new Mcp(m.credentials[0]!.apiKey).call<{ git: { remote: string; token: string } }>("workspace_get");
+    await new Mcp(m.credentials[0]!.apiKey).call("intent_record", { summary: `Greet in ${name}'s words`, why: "The greeting should be friendly." });
+    const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${y}-${name}`, ws.data.git.token, { name, email: `${name}@e` });
+    await g.write("greeting.md", `# Greeting\n\n${text}\n`);
+    await g.commitAndPush("docs: greeting");
+  };
+  const first = await make("Write a greeting", "Lee", false);
+  const second = await make("Write a warmer greeting", "Max", true);
+  await push(first, "Lee", "Hello there.");
+  for (let i = 0; i < 60 && !(await get(first.task.id)).agents[0]?.headCommit; i++) await sleep(500);
+  await browser(`/api/yards/${y}/tasks/${first.task.id}/decide`, { json: { mode: "winner", winnerAgentId: "lee" } });
+  await push(second, "Max", "Hello, friend. Good to see you.");
+  let d = await get(second.task.id);
+  for (let i = 0; i < 90 && d.task.status === "open"; i++) {
+    await sleep(500);
+    d = await get(second.task.id);
+  }
+  const yard = (await (await browser(`/api/yards/${y}`)).json()) as { tasks: { id: string; title: string; brief: string; status: string }[] };
+  const again = yard.tasks.find((t) => t.id !== second.task.id && t.title === "Write a warmer greeting");
+  if (d.autopilot === "handed" && !again) console.log(`  (skipped: no fork cleared the autopilot bar, ${d.asks[0]?.options.map((o) => o.label).join(" / ")})`);
+  else
+    check(
+      d.task.status === "abandoned" && !!again && again.brief.includes("## Second attempt") && again.brief.includes("greeting.md") && again.brief.includes("Write a greeting"),
+      "a conflict becomes a re-run from the new base, briefed with what landed since",
+    );
 }
 
 /** Cloud agents (Pi Durable in a Durable Object) work next to local MCP seats on the same task. */

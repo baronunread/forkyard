@@ -611,19 +611,46 @@ export async function askAnswer(env: Env, p: Principal, yardId: string, askId: s
 }
 
 /** The same task again, from the latest base: same title, brief and agents; the old one is abandoned. */
-export async function taskRestart(env: Env, p: Principal, yardId: string, taskId: string) {
+export async function taskRestart(env: Env, p: Principal, yardId: string, taskId: string, brief?: string) {
   await assertMemberOrAdmin(env, p, yardId);
   const task = await mustTask(env, yardId, taskId);
   const agents = (await listAgents(env.DB, yardId, taskId)).filter((a) => a.status !== "failed");
   const created = await taskCreate(env, p, yardId, {
     title: task.title,
-    brief: task.brief,
+    brief: brief ?? task.brief,
     autopilot: true,
     // A restarted cloud agent is a cloud agent again.
     agents: agents.map((a) => ({ name: a.name, harness: a.harness, role: a.role, runner: a.harness === CLOUD_HARNESS ? ("cloud" as const) : ("mcp" as const) })),
   });
   if (task.status === "open") await taskAbandon(env, p, yardId, taskId, `restarted from the latest base as ${created.task.id}`);
   return created;
+}
+
+/** Marks a brief autopilot already re-ran once; a second conflict goes to a person. */
+export const RERUN_HEADING = "## Second attempt";
+
+/**
+ * Autopilot's answer to "the base moved under every fork": the task once more from the latest
+ * base, as the person who started it (so their limits apply), with a brief that says what the
+ * first attempt did and what landed on the same files since.
+ */
+export async function taskRerun(env: Env, task: Task, ownerUserId: string, clash: string, previous: { agent: string; intent: Intent | null } | null) {
+  const { results: landed } = await env.DB.prepare("SELECT title FROM tasks WHERE yard_id = ? AND status = 'decided' AND decided_at > ? ORDER BY decided_at")
+    .bind(task.yardId, task.createdAt)
+    .all<{ title: string }>();
+  const files = clash.match(/also changed (.*?);/)?.[1];
+  const note = [
+    RERUN_HEADING,
+    "",
+    `The first attempt couldn't merge: other work changed ${files ? `\`${files.split(", ").join("`, `")}\`` : "the same files"} on the base after it started. You start from the latest base.`,
+    previous ? `\nWhat the best fork did (${previous.agent}): ${previous.intent ? `${previous.intent.summary}. ${previous.intent.why}` : "no intent recorded."}` : null,
+    landed.length ? `\nWhat landed since, keep it working:\n${landed.map((t) => `- ${t.title}`).join("\n")}` : null,
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+  const brief = `${task.brief.slice(0, 7900 - note.length)}\n\n${note}`.trim();
+  const p: Principal = { kind: "user", userId: ownerUserId, label: "autopilot", via: "session" };
+  return taskRestart(env, p, task.yardId, task.id, brief);
 }
 
 export async function setAutopilot(env: Env, p: Principal, yardId: string, taskId: string, on: boolean) {

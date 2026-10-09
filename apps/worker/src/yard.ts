@@ -1350,8 +1350,20 @@ export class Yard extends DurableObject<Env> {
         }
       }
       if (merged) continue;
-      this.setAutopilot(taskId, "handed");
       const baseMoved = !!firstError?.includes("base moved");
+      // A conflict is a re-run, not a chore: once, start over from the latest base by itself.
+      const { RERUN_HEADING, taskRerun } = await import("./service");
+      const owner = this.sql.exec<{ user_id: string | null }>("SELECT user_id FROM task_owners WHERE task_id = ?", taskId).toArray()[0]?.user_id;
+      if (baseMoved && owner && !task.brief.includes(RERUN_HEADING)) {
+        try {
+          const intents = await latestIntents(this.env.DB, yard.id, taskId);
+          await taskRerun(this.env, task, owner, firstError!, { agent: best.agent.name, intent: intents.get(best.agent.id) ?? null });
+          continue;
+        } catch (err) {
+          console.error("autopilot re-run failed", err); // over a limit, say: a person decides
+        }
+      }
+      this.setAutopilot(taskId, "handed");
       await this.openAsk(
         taskId,
         null,
