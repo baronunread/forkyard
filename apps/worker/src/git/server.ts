@@ -4,7 +4,7 @@ import { FLUSH, pkt, pktText, readPkts } from "./pktline";
 
 /**
  * Git smart-HTTP server (protocol v0) over a synchronous object store. Used
- * by the local Artifacts emulator so `pnpm dev` supports real `git clone` and
+ * by the local Artifacts emulator so `bun run dev` supports real `git clone` and
  * `git push` without a Cloudflare account.
  */
 

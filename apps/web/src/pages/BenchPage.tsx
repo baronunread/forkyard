@@ -63,7 +63,7 @@ export function BenchPage() {
             <RunsTable runs={eventRuns} />
           ) : (
             <p className="text-sm text-body">
-              Run <code>pnpm bench:events</code> to record end-to-end numbers.
+              Run <code>bun run bench:events</code> to record end-to-end numbers.
             </p>
           )}
           {latency.data && (

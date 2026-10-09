@@ -1,10 +1,10 @@
 /**
  * Demo seed: one yard, one task, four scripted agents working concurrently.
  *
- *   pnpm seed                      # demo pacing (good for recording), decides at the end
- *   pnpm seed --pace=fast          # same story, no pauses (--pace=slow doubles the pauses)
- *   pnpm seed --no-decide          # leave the decision to you in the UI
- *   pnpm seed --yard=my-demo
+ *   bun run seed                      # demo pacing (good for recording), decides at the end
+ *   bun run seed --pace=fast          # same story, no pauses (--pace=slow doubles the pauses)
+ *   bun run seed --no-decide          # leave the decision to you in the UI
+ *   bun run seed --yard=my-demo
  *
  * Each agent does what a real coding agent would: workspace_get over MCP,
  * claim_paths, intent_record, then plain `git clone` / `git push` with its

@@ -3,9 +3,9 @@
  * and any time you want to reclaim storage. The hourly cron does the same for
  * closed tasks after FORK_TTL_HOURS.
  *
- *   pnpm cleanup                         # forks of closed tasks older than 24h + leftover bench forks
- *   pnpm cleanup --ttl=0                 # all forks of closed tasks, now
- *   pnpm cleanup --abandon-open=72       # also abandon tasks still open after 72h (their forks go too)
+ *   bun run cleanup                         # forks of closed tasks older than 24h + leftover bench forks
+ *   bun run cleanup --ttl=0                 # all forks of closed tasks, now
+ *   bun run cleanup --abandon-open=72       # also abandon tasks still open after 72h (their forks go too)
  */
 import { api, arg } from "./lib";
 

@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173",
-    "build": "pnpm --filter @forkyard/worker build:types && tsc -p tsconfig.json --noEmit && vite build",
-    "typecheck": "pnpm --filter @forkyard/worker build:types && tsc -p tsconfig.json --noEmit",
+    "build": "bun run --cwd ../worker build:types && tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "bun run --cwd ../worker build:types && tsc -p tsconfig.json --noEmit",
     "test": "echo 'web: no unit tests (covered by scripts/e2e.ts)'",
     "doctor": "react-doctor . --yes --no-supply-chain --verbose"
   },

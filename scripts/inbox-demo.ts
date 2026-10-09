@@ -1,8 +1,8 @@
 /**
  * Inbox demo: agents that run on their own, and the two moments they need a person.
  *
- *   pnpm demo:inbox                 # yard "billing"
- *   pnpm demo:inbox --yard=my-yard
+ *   bun run demo:inbox                 # yard "billing"
+ *   bun run demo:inbox --yard=my-yard
  *
  * Three tasks in one yard:
  *  1. "Add usage-based pricing": three agents push clean forks; autopilot merges the best.

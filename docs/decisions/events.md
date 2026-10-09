@@ -33,14 +33,14 @@ Both paths are implemented, behind the transport-independent `YardEvent` schema 
 
 ## Measurements
 
-`pnpm bench:events` pushes N commits with plain `git` and times until the matching `push.received` arrives on a WebSocket — exactly what the UI sees.
+`bun run bench:events` pushes N commits with plain `git` and times until the matching `push.received` arrives on a WebSocket — exactly what the UI sees.
 
 | Path | Environment | p50 | p95 | p99 |
 | --- | --- | --- | --- | --- |
 | git push → event on WebSocket (live path) | local (`wrangler dev`, Artifacts emulator, local Queue) | 42 ms | 48 ms | 76 ms |
 | push returned → event on WebSocket | local | 8 ms | 12 ms | 13 ms |
-| git push → WebSocket, **production** | Cloudflare (Artifacts beta) | _run `pnpm bench:events` on a deployment_ | | |
-| K2: DO append → pull consumer | Cloudflare | _run `pnpm bench:events --k2`_ | | |
+| git push → WebSocket, **production** | Cloudflare (Artifacts beta) | _run `bun run bench:events` on a deployment_ | | |
+| K2: DO append → pull consumer | Cloudflare | _run `bun run bench:events --k2`_ | | |
 | K2 published (produce + polling) | Cloudflare docs / launch | — | ~2.5 s | ~7.5 s |
 
 The local numbers prove the pipeline and its overhead (no extra hops beyond Queue → DO → socket); they are not a stand-in for production network latency. The production rows need an Artifacts beta account; the scripts write JSON to `bench-results/` and record runs that the Benchmarks page shows.
@@ -56,4 +56,4 @@ Apply the rule from the brief: *anything live must stay under ~1 s.*
 Two follow-ups make the Queue less necessary, and both are cheap because producers and consumers only see `YardEvent`:
 
 1. Artifacts `triggers.events → workflow` already exists. `ReviewWorkflow` accepts the raw Artifacts event (its first step routes it and notifies the yard), so the review pipeline can drop the Queue today. The Queue stays for the live notification, which needs one Worker hop either way.
-2. If K2 ships as an Artifacts event destination **and** gets push (Worker) consumers with sub-second delivery, re-run `pnpm bench:events --k2` and consider making K2 the single log, with the DO only fanning out.
+2. If K2 ships as an Artifacts event destination **and** gets push (Worker) consumers with sub-second delivery, re-run `bun run bench:events --k2` and consider making K2 the single log, with the DO only fanning out.

@@ -2,8 +2,8 @@
  * Event latency benchmark: git push → event visible to a WebSocket client
  * (exactly what the UI and agents see).
  *
- *   pnpm bench:events --pushes=30
- *   pnpm bench:events --k2          # also poll the K2 spike consumer and report its added latency
+ *   bun run bench:events --pushes=30
+ *   bun run bench:events --k2          # also poll the K2 spike consumer and report its added latency
  *
  * Live path: Artifacts event subscription → Queue → Worker → Yard DO → WebSocket.
  * K2 path (spike): the same events forwarded into a K2 stream and pulled by the

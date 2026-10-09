@@ -20,29 +20,29 @@ Built for Cloudflare's [“Build the next Git platform”](https://blog.cloudfla
 
 ## Quick start
 
-Requirements: Node 22+, pnpm 10, git.
+Requirements: Node 22+, Bun 1.3+, git.
 
 ```sh
-pnpm install
-pnpm dev          # emulated GitHub + Google, the worker (API, MCP, git) on :8787, the UI on http://localhost:5173
-pnpm seed         # in another terminal: a yard, a task, four agents working concurrently
+bun install
+bun run dev          # emulated GitHub + Google, the worker (API, MCP, git) on :8787, the UI on http://localhost:5173
+bun run seed         # in another terminal: a yard, a task, four agents working concurrently
 ```
 
-`pnpm dev` needs **no Cloudflare account and no OAuth apps**. Sign-in runs the real GitHub / Google flow against [emulate.dev](https://emulate.dev) (`emulate.config.yaml` seeds users such as `ada` and `grace@forkyard.dev`; pick one on the emulator's page). And the Artifacts binding (which has no local simulator) is replaced by a local emulator Durable Object that speaks real git smart HTTP, so the seed's scripted agents — and any real agent — can `git clone` and `git push` against it. Queues, Workflows, D1 and Durable Objects run in `wrangler dev`.
+`bun run dev` needs **no Cloudflare account and no OAuth apps**. Sign-in runs the real GitHub / Google flow against [emulate.dev](https://emulate.dev) (`emulate.config.yaml` seeds users such as `ada` and `grace@forkyard.dev`; pick one on the emulator's page). And the Artifacts binding (which has no local simulator) is replaced by a local emulator Durable Object that speaks real git smart HTTP, so the seed's scripted agents — and any real agent — can `git clone` and `git push` against it. Queues, Workflows, D1 and Durable Objects run in `wrangler dev`.
 
 Other scripts:
 
 | Command | What it does |
 | --- | --- |
-| `pnpm seed [--pace=fast\|demo\|slow] [--no-decide] [--yard=id] [--name="…"]` | Demo story for the video: 4 agents, small commits pushed concurrently, a claim overlap, a change overlap, reviews, and an assembled decision (autopilot off: a person decides this one). |
-| `pnpm demo:inbox [--yard=billing]` | Three tasks in one yard: one that autopilot merges by itself, one where an agent asks a person which exchange rate to use, one where no fork clears the bar and autopilot hands the decision over. |
-| `pnpm e2e [--cleanup]` | Runs the seed and asserts 35 things: fan-out, overlaps, git-sourced intents, reviews, decision, MCP tool parity, permissions (agents can't decide, can't touch other tasks, fork tokens can't reach the base repo), GitHub sign-in through emulate, MCP OAuth for both kinds of seat, the inbox, autopilot holding while an agent waits on a person and merging once it's answered, and cron cleanup. |
-| `pnpm swarm [--agents=200 --tasks=4 --rounds=3 --concurrency=64]` | Hundreds or thousands of agents on one yard: each gets its own fork and pushes real commits over git smart HTTP, working lanes of the codebase with shared hot files, so collisions are real. Reports fan-out, push → visible, push → reviewed, pushes/s and overlaps. |
-| `pnpm bench:fork [--levels=1,5,20,50 --rounds=3]` | Fork latency at 1/5/20/50 concurrent forks, p50/p95/p99. |
-| `pnpm bench:events [--pushes=20] [--k2]` | `git push` → event on a WebSocket (what the UI sees); optional K2 spike numbers. |
-| `pnpm cleanup [--ttl=0] [--abandon-open=72]` | Delete stale forks (run before Artifacts billing starts on **October 15**). |
-| `pnpm --filter web doctor` | [React Doctor](https://react.doctor) on the UI: hooks, effects, accessibility, security. |
-| `pnpm test` / `pnpm typecheck` | Unit tests (git protocol against the real `git` CLI, overlap detection, hunk assembly) and types. |
+| `bun run seed [--pace=fast\|demo\|slow] [--no-decide] [--yard=id] [--name="…"]` | Demo story for the video: 4 agents, small commits pushed concurrently, a claim overlap, a change overlap, reviews, and an assembled decision (autopilot off: a person decides this one). |
+| `bun run demo:inbox [--yard=billing]` | Three tasks in one yard: one that autopilot merges by itself, one where an agent asks a person which exchange rate to use, one where no fork clears the bar and autopilot hands the decision over. |
+| `bun run e2e [--cleanup]` | Runs the seed and asserts 35 things: fan-out, overlaps, git-sourced intents, reviews, decision, MCP tool parity, permissions (agents can't decide, can't touch other tasks, fork tokens can't reach the base repo), GitHub sign-in through emulate, MCP OAuth for both kinds of seat, the inbox, autopilot holding while an agent waits on a person and merging once it's answered, and cron cleanup. |
+| `bun run swarm [--agents=200 --tasks=4 --rounds=3 --concurrency=64]` | Hundreds or thousands of agents on one yard: each gets its own fork and pushes real commits over git smart HTTP, working lanes of the codebase with shared hot files, so collisions are real. Reports fan-out, push → visible, push → reviewed, pushes/s and overlaps. |
+| `bun run bench:fork [--levels=1,5,20,50 --rounds=3]` | Fork latency at 1/5/20/50 concurrent forks, p50/p95/p99. |
+| `bun run bench:events [--pushes=20] [--k2]` | `git push` → event on a WebSocket (what the UI sees); optional K2 spike numbers. |
+| `bun run cleanup [--ttl=0] [--abandon-open=72]` | Delete stale forks (run before Artifacts billing starts on **October 15**). |
+| `bun run --cwd apps/web doctor` | [React Doctor](https://react.doctor) on the UI: hooks, effects, accessibility, security. |
+| `bun run test` / `bun run typecheck` | Unit tests (git protocol against the real `git` CLI, overlap detection, hunk assembly) and types. |
 
 ## Deploy
 
@@ -64,12 +64,12 @@ Other scripts:
    npx wrangler secret put GOOGLE_CLIENT_ID --env production      # and GOOGLE_CLIENT_SECRET
    npx wrangler secret put FORKYARD_ADMIN_KEY --env production    # operator key for seed / bench scripts
    ```
-4. `pnpm deploy` (builds the UI, applies D1 migrations, deploys `--env production`).
+4. `bun run deploy` (builds the UI, applies D1 migrations, deploys `--env production`).
 5. Optional: connect the base repos to **Workers Builds** (Settings → Builds, enable Preview builds) and set each yard's preview URL template, e.g. `https://{branch}-myapp.<subdomain>.workers.dev`. Forkyard mirrors every agent's latest push to a `fy/<task>/<agent>` branch so each fork gets its own Preview URL.
 6. Seed and benchmark the deployment:
    ```sh
-   FORKYARD_URL=https://forkyard.<subdomain>.workers.dev FORKYARD_ADMIN_KEY=… pnpm seed
-   FORKYARD_URL=… FORKYARD_ADMIN_KEY=… pnpm bench:fork && pnpm bench:events
+   FORKYARD_URL=https://forkyard.<subdomain>.workers.dev FORKYARD_ADMIN_KEY=… bun run seed
+   FORKYARD_URL=… FORKYARD_ADMIN_KEY=… bun run bench:fork && bun run bench:events
    ```
 
 ## How it works
@@ -123,7 +123,7 @@ flowchart LR
 - **Two kinds of agents, one task.** *Your agents* run wherever you run them (Claude Code on your Claude plan, Codex CLI, anything that speaks MCP) and take a seat over `/mcp`. *Cloud agents* are [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable) agents Forkyard runs itself, one `PiAgent` Durable Object each (Agents SDK `PiHarness`): their tools are Forkyard's (list/read/write files in their fork, claim paths, record intent, push, `ask_human`), every step is committed before it runs, and an eviction mid-run resumes where it stopped. A task can mix both; they're reviewed and merged the same way. Cloud agents run on the task owner's ChatGPT plan when connected (account menu → *ChatGPT*, a device-code sign-in run from the Worker; token AES-GCM encrypted in D1, refreshes serialized because OpenAI rotates refresh tokens), else Workers AI (`PI_AGENT_MODEL`), else locally a scripted model so the loop runs offline. An answer to a cloud agent's `ask_human` is delivered straight into its conversation. The same ChatGPT connection also reviews forks in yards you own. Claude subscriptions can't be used server-side (Anthropic only allows them in its own apps), which is why Claude runs as one of *your* agents.
 - **Asks.** `ask_human` stores a question (with optional choices) in D1 and logs `ask.opened`; the answer is logged as `ask.answered`, which reaches the agent's socket, `events_since` and `ask_status`. Open asks hold autopilot for that task. `GET /api/inbox` lists everything waiting on a person across yards.
 - **Decide.** Pick a winner, or select hunks from several forks; Forkyard previews the combined result with conflicts, then writes one commit to the base branch with a compare-and-swap ref update and `Co-authored-by` lines for the agents. The Artifacts binding has no write API, so this uses a small git smart-HTTP client (`apps/worker/src/git/`).
-- **Cleanup.** An hourly cron deletes forks (and preview branches) of decided or abandoned tasks after `FORK_TTL_HOURS`, revokes their keys, and logs `fork.deleted`. `pnpm cleanup` sweeps on demand.
+- **Cleanup.** An hourly cron deletes forks (and preview branches) of decided or abandoned tasks after `FORK_TTL_HOURS`, revokes their keys, and logs `fork.deleted`. `bun run cleanup` sweeps on demand.
 
 ### At swarm scale
 
@@ -182,7 +182,7 @@ People sign in with **GitHub** or **Google** through [Better Auth](https://www.b
 
 Measured with the scripts above. **The local rows use the Artifacts emulator under `wrangler dev` and only show Forkyard's own overhead**; production rows need an Artifacts beta account and are produced by the same scripts (they land in `bench-results/` and on the in-app Benchmarks page).
 
-**Swarm** (`pnpm swarm`, every agent a real git client with its own fork and scoped token; 0 errors in both runs):
+**Swarm** (`bun run swarm`, every agent a real git client with its own fork and scoped token; 0 errors in both runs):
 
 | Agents · tasks | Fan-out: all forks ready | Pushes | Push → visible on the live feed (p50 / p95) | Push → reviewed (p50) | Environment |
 | --- | --- | --- | --- | --- | --- |
@@ -192,7 +192,7 @@ Measured with the scripts above. **The local rows use the Artifacts emulator und
 
 Locally every git operation of every agent goes through one emulator Durable Object and reviews run in the local Workflows engine (capped at 16 at a time), so these are a floor; on Cloudflare, Artifacts serves git and the review cap is raised (`REVIEW_CONCURRENCY`). "Reviewed" means the agent's diff, footprint and overlap check have landed; reviews coalesce, so a burst of pushes from one agent is reviewed once at its newest head.
 
-**Fork latency** (`pnpm bench:fork`, forks issued concurrently inside the Worker):
+**Fork latency** (`bun run bench:fork`, forks issued concurrently inside the Worker):
 
 | Concurrent forks | p50 | p95 | p99 | Environment |
 | --- | --- | --- | --- | --- |
@@ -202,7 +202,7 @@ Locally every git operation of every agent goes through one emulator Durable Obj
 | 50 | 20 ms | 36 ms | 45 ms | local emulator |
 | 1 / 5 / 20 / 50 | _pending a deployment run_ | | | Cloudflare Artifacts |
 
-**Event latency** (`pnpm bench:events`, `git push` → event on a WebSocket):
+**Event latency** (`bun run bench:events`, `git push` → event on a WebSocket):
 
 | Path | p50 | p95 | p99 | Environment |
 | --- | --- | --- | --- | --- |

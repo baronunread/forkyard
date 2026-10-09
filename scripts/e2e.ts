@@ -1,8 +1,8 @@
 /**
  * End-to-end check against a running Forkyard (local or deployed).
  *
- *   pnpm e2e                 # runs the seed (fast) and asserts the whole story
- *   pnpm e2e --cleanup       # also triggers the cron (wrangler dev --test-scheduled, FORK_TTL_HOURS=0)
+ *   bun run e2e                 # runs the seed (fast) and asserts the whole story
+ *   bun run e2e --cleanup       # also triggers the cron (wrangler dev --test-scheduled, FORK_TTL_HOURS=0)
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -151,7 +151,7 @@ async function cloudAgentChecks() {
 
 async function main() {
   console.log(`e2e → ${BASE}\n`);
-  const seed = await run("npx", ["tsx", "scripts/seed.ts", "--pace=fast", `--yard=${yardId}`], { env: process.env, maxBuffer: 8 << 20 });
+  const seed = await run("bun", ["scripts/seed.ts", "--pace=fast", `--yard=${yardId}`], { env: process.env, maxBuffer: 8 << 20 });
   check(seed.stdout.includes("decided: assembled"), "seed ran to a decision");
 
   const detail = await api<{
@@ -254,7 +254,7 @@ async function main() {
 async function oauthChecks(probeTask: string) {
   const providers = (await (await fetch(`${BASE}/api/providers`)).json()) as { providers: string[]; emulated: boolean };
   if (!providers.emulated || !providers.providers.includes("github")) {
-    console.log("- skipping sign-in and OAuth checks (needs emulate: pnpm emulate)");
+    console.log("- skipping sign-in and OAuth checks (needs emulate: bun run emulate)");
     return;
   }
   const challenge = await fetch(`${BASE}/mcp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });

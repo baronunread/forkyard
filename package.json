@@ -5,30 +5,38 @@
   "description": "Agent-native Git platform on Cloudflare: many agents, one codebase, forks compared side by side.",
   "license": "MIT",
   "type": "module",
-  "packageManager": "pnpm@10.28.0",
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "dev": "node scripts/ensure-dist.mjs && pnpm --filter @forkyard/worker db:migrate:local && pnpm --filter @forkyard/worker build:types && concurrently -k -n emulate,worker,web -c magenta,yellow,cyan \"pnpm emulate\" \"pnpm --filter @forkyard/worker dev\" \"pnpm --filter @forkyard/web dev\"",
-    "build": "pnpm --filter @forkyard/web build",
-    "deploy": "pnpm build && pnpm --filter @forkyard/worker db:migrate:remote && pnpm --filter @forkyard/worker run deploy",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "seed": "tsx scripts/seed.ts",
-    "bench:fork": "tsx scripts/bench-fork.ts",
-    "bench:events": "tsx scripts/bench-events.ts",
-    "e2e": "tsx scripts/e2e.ts",
-    "cleanup": "tsx scripts/cleanup.ts",
+    "dev": "node scripts/ensure-dist.mjs && bun run --cwd apps/worker db:migrate:local && bun run --cwd apps/worker build:types && concurrently -k -n emulate,worker,web -c magenta,yellow,cyan \"bun run emulate\" \"bun run --cwd apps/worker dev\" \"bun run --cwd apps/web dev\"",
+    "build": "bun run --cwd apps/web build",
+    "deploy": "bun run build && bun run --cwd apps/worker db:migrate:remote && bun run --cwd apps/worker deploy",
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test",
+    "seed": "bun scripts/seed.ts",
+    "bench:fork": "bun scripts/bench-fork.ts",
+    "bench:events": "bun scripts/bench-events.ts",
+    "e2e": "bun scripts/e2e.ts",
+    "cleanup": "bun scripts/cleanup.ts",
     "emulate": "emulate start --service github,google --port 4001 --seed emulate.config.yaml",
-    "swarm": "tsx scripts/swarm.ts",
-    "demo:inbox": "tsx scripts/inbox-demo.ts"
+    "swarm": "bun scripts/swarm.ts",
+    "demo:inbox": "bun scripts/inbox-demo.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "concurrently": "^9.2.0",
     "emulate": "0.12.1",
-    "tsx": "^4.20.0",
     "typescript": "^5.9.0"
-  }
+  },
+  "trustedDependencies": [
+    "esbuild",
+    "workerd",
+    "sharp"
+  ]
 }

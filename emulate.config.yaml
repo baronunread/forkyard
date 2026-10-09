@@ -1,4 +1,4 @@
-# Local GitHub and Google for `pnpm dev` (https://emulate.dev). Sign-in on
+# Local GitHub and Google for `bun run dev` (https://emulate.dev). Sign-in on
 # localhost runs the real OAuth flow against these emulators: pick a seeded
 # user on the emulator's page and you're back in Forkyard, signed in.
 # Credentials match the local vars in apps/worker/wrangler.jsonc.

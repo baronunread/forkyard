@@ -3,8 +3,8 @@
 Setup before recording:
 
 ```sh
-pnpm install
-pnpm dev            # worker on :8787, UI on :5173
+bun install
+bun run dev            # worker on :8787, UI on :5173
 ```
 
 Open http://localhost:5173 in a 1600×1000 window (dark theme looks best on video; toggle with the theme button). Keep a terminal visible next to it.
@@ -16,7 +16,7 @@ Open http://localhost:5173 in a 1600×1000 window (dark theme looks best on vide
 ## 1b. Nothing needs you, until it does (1 min)
 
 ```sh
-pnpm demo:inbox
+bun run demo:inbox
 ```
 
 - Home ("Everything") says how many things need you. Within seconds two cards appear: **Dex** asks which exchange rate invoices should use (three choices and a reply box), and **Autopilot** says no fork on "Retry failed webhooks" cleared the bar (both left conflict markers), with *Merge Fay's fork*, *Merge Gus's fork*, *Abandon*.
@@ -28,7 +28,7 @@ pnpm demo:inbox
 In the terminal:
 
 ```sh
-pnpm seed           # demo pacing; add --no-decide to decide on camera
+bun run seed           # demo pacing; add --no-decide to decide on camera
 ```
 
 - Point at the log: the task fanned out to four agents in milliseconds, each with its own fork.
@@ -52,7 +52,7 @@ pnpm seed           # demo pacing; add --no-decide to decide on camera
 In the terminal:
 
 ```sh
-pnpm swarm --agents=500 --tasks=5 --rounds=5 --think=4000
+bun run swarm --agents=500 --tasks=5 --rounds=5 --think=4000
 ```
 
 - Point at the log: 500 forks ready in a few seconds, then rounds of real pushes.

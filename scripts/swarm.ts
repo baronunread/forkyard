@@ -1,9 +1,9 @@
 /**
  * Swarm: hundreds or thousands of agents working on one codebase at once.
  *
- *   pnpm swarm                                    # 200 agents, 4 tasks, 3 pushes each
- *   pnpm swarm --agents=1000 --tasks=10 --rounds=5 --concurrency=128
- *   FORKYARD_URL=https://… FORKYARD_ADMIN_KEY=… pnpm swarm --agents=2000
+ *   bun run swarm                                    # 200 agents, 4 tasks, 3 pushes each
+ *   bun run swarm --agents=1000 --tasks=10 --rounds=5 --concurrency=128
+ *   FORKYARD_URL=https://… FORKYARD_ADMIN_KEY=… bun run swarm --agents=2000
  *
  * Each agent is a real git client: it gets its own fork through task fan-out,
  * then builds commits in-process and pushes them over git smart HTTP with its

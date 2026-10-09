@@ -5,6 +5,6 @@ if (!existsSync(new URL("index.html", dir))) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     new URL("index.html", dir),
-    '<!doctype html><meta charset="utf-8"><title>Forkyard</title><p style="font-family:system-ui">The Forkyard UI runs on <a href="http://localhost:5173">http://localhost:5173</a> during <code>pnpm dev</code>. Run <code>pnpm build</code> to serve it from the Worker.</p>',
+    '<!doctype html><meta charset="utf-8"><title>Forkyard</title><p style="font-family:system-ui">The Forkyard UI runs on <a href="http://localhost:5173">http://localhost:5173</a> during <code>bun run dev</code>. Run <code>bun run build</code> to serve it from the Worker.</p>',
   );
 }

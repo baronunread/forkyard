@@ -1,7 +1,7 @@
 {
-  // Top level = local development (`pnpm dev`): Artifacts is emulated by the
+  // Top level = local development (`bun run dev`): Artifacts is emulated by the
   // LocalArtifacts Durable Object, so no Cloudflare account is needed.
-  // `env.production` = the real deployment (`pnpm deploy`).
+  // `env.production` = the real deployment (`bun run deploy`).
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "forkyard",
   "main": "src/index.ts",
@@ -22,7 +22,7 @@
     "TOKEN_TTL_SECONDS": "14400",
     // Short settle time so the autopilot is visible in a local demo (default 15 s).
     "AUTOPILOT_QUIET_MS": "4000",
-    // Local dev only. Sign-in runs against emulate.dev (`pnpm dev` starts it with
+    // Local dev only. Sign-in runs against emulate.dev (`bun run dev` starts it with
     // emulate.config.yaml), so these are emulator credentials, not real ones.
     "FORKYARD_DEV": "true",
     "BETTER_AUTH_SECRET": "local-dev-secret-not-for-production-0123456789",

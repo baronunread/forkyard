@@ -99,7 +99,7 @@ app.all("/git/*", async (c) => {
 // Everything else is the web app (SPA fallback handled by the assets binding).
 app.all("*", async (c) => {
   if (c.env.ASSETS) return c.env.ASSETS.fetch(c.req.raw);
-  return c.text("Forkyard API is running. Start the web app with `pnpm dev`.", 200);
+  return c.text("Forkyard API is running. Start the web app with `bun run dev`.", 200);
 });
 
 function routeTable(origin: string) {

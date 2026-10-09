@@ -1,8 +1,8 @@
 /**
  * Fork latency benchmark.
  *
- *   pnpm bench:fork                         # 1, 5, 20, 50 concurrent forks × 3 rounds
- *   pnpm bench:fork --levels=1,5,20,50 --rounds=5 --files=500 --yard=bench
+ *   bun run bench:fork                         # 1, 5, 20, 50 concurrent forks × 3 rounds
+ *   bun run bench:fork --levels=1,5,20,50 --rounds=5 --files=500 --yard=bench
  *
  * Each round calls POST /api/bench/fork, which forks the yard's base repo N
  * times concurrently *inside the Worker* (so client network latency is not
