@@ -139,11 +139,12 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewParams | Artif
 
     const analysis = await step.do("checks", async () => analyze(this.env, p, files, intent !== null));
 
-    const ai = await step.do(
+    const res = await step.do(
       "review agent",
       { retries: { limit: 2, delay: "3 seconds", backoff: "exponential" }, timeout: "2 minutes" },
       async () => aiReview(this.env, p, files, intent, analysis),
     );
+    const ai = "skipped" in res ? null : res;
 
     return step.do("persist review", async () => {
       const heuristic = heuristicScore(analysis, intent !== null, files);
@@ -159,7 +160,8 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewParams | Artif
         summary: ai?.summary ?? summarizeChecks(analysis.checks, files),
         checks: analysis.checks,
         comments: [...analysis.comments, ...(ai?.comments ?? [])].slice(0, 30),
-        reviewer: ai ? `${ai.model} + checks` : "checks (heuristic)",
+        // Say why the model didn't weigh in, so a fallback is never silent.
+        reviewer: ai ? `${ai.model} + checks` : `checks (heuristic${"skipped" in res ? `: ${res.skipped}` : ""})`,
         createdAt: now(),
       };
       await this.env.DB.prepare(
@@ -340,8 +342,8 @@ async function aiReview(
   files: ChangedFile[],
   intent: { summary: string; why: string } | null,
   a: Analysis,
-): Promise<{ score: number; summary: string; comments: ReviewComment[]; model: string } | null> {
-  if (files.length === 0) return null;
+): Promise<{ score: number; summary: string; comments: ReviewComment[]; model: string } | { skipped: string }> {
+  if (files.length === 0) return { skipped: "no files" };
   const task = await getTask(env.DB, p.yardId, p.taskId);
   const agent = await getAgent(env.DB, p.yardId, p.taskId, p.agentId);
   const prompt = [
@@ -368,7 +370,8 @@ async function aiReview(
     }
   }
   if (raw === null) {
-    if (!env.AI || !(await spendWorkersAi(env))) return null;
+    if (!env.AI) return { skipped: "no Workers AI binding" };
+    if (!(await spendWorkersAi(env))) return { skipped: "daily Workers AI limit reached" };
     model = `workers-ai:${env.REVIEW_MODEL || "@cf/moonshotai/kimi-k2.7-code"}`;
     const messages = [
       { role: "system", content: system },
@@ -390,12 +393,12 @@ async function aiReview(
   const json = /\{[\s\S]*\}/.exec(raw)?.[0];
   if (!json) {
     console.warn("review answer has no JSON", model, raw.slice(0, 200));
-    return null;
+    return { skipped: raw ? "the model's answer had no JSON" : "the model's answer was empty" };
   }
   try {
     const parsed = JSON.parse(json) as { score?: number; summary?: string; comments?: ReviewComment[] };
     const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score))));
-    if (!Number.isFinite(score)) return null;
+    if (!Number.isFinite(score)) return { skipped: "the model gave no score" };
     return {
       score,
       summary: String(parsed.summary ?? "").slice(0, 400) || "Reviewed.",
@@ -403,6 +406,6 @@ async function aiReview(
       model,
     };
   } catch {
-    return null;
+    return { skipped: "the model's JSON didn't parse" };
   }
 }
