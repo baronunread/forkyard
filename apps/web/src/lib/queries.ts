@@ -26,10 +26,10 @@ export const queryClient = new QueryClient({
 });
 
 export const meQuery = queryOptions({
-  queryKey: ["me"],
+  queryKey: ["account"],
   queryFn: async () => {
     try {
-      return await call(client.me.$get());
+      return await call(client.account.$get());
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return null;
       throw e;
@@ -121,4 +121,4 @@ export function headsOf(agents: { headCommit: string | null }[]): string {
 }
 
 /** Your ChatGPT plan: whether it's connected, the models you picked, and whether cloud agents can start. */
-export const chatgptQuery = queryOptions({ queryKey: ["me", "chatgpt"], queryFn: () => call(client.me.models.chatgpt.$get()) });
+export const chatgptQuery = queryOptions({ queryKey: ["account", "chatgpt"], queryFn: () => call(client.account.models.chatgpt.$get()) });

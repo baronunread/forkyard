@@ -114,9 +114,9 @@ type Browser = (path: string, init?: { method?: string; json?: unknown }) => Pro
 async function chatgptChecks(browser: Browser) {
   const b64url = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const fake = `${b64url({ alg: "none" })}.${b64url({ exp: Math.floor(Date.now() / 1000) + 3600, "https://api.openai.com/auth": { chatgpt_account_id: "acct_e2e" }, "https://api.openai.com/profile": { email: "ada@forkyard.dev" } })}.sig`;
-  const before = (await (await browser("/api/me/models/chatgpt")).json()) as { connected: boolean };
+  const before = (await (await browser("/api/account/models/chatgpt")).json()) as { connected: boolean };
   check(!before.connected, "ChatGPT starts disconnected");
-  const pasted = (await (await browser("/api/me/models/chatgpt/paste", { json: { credential: JSON.stringify({ tokens: { access_token: fake, refresh_token: "r_e2e" } }) } })).json()) as {
+  const pasted = (await (await browser("/api/account/models/chatgpt/paste", { json: { credential: JSON.stringify({ tokens: { access_token: fake, refresh_token: "r_e2e" } }) } })).json()) as {
     connected: boolean;
     label: string | null;
     useForReviews: boolean;
@@ -157,11 +157,11 @@ async function chatgptChecks(browser: Browser) {
   check(!!asked && asked.reviewer.includes("ChatGPT failed"), `a review still lands when ChatGPT rejects the token (${asked?.reviewer ?? "none"})`);
   const unasked = await pushOne("Say hello again", false);
   check(!!unasked && unasked.reviewer.includes("no review asked"), `one agent, no review asked: checks only (${unasked?.reviewer ?? "none"})`);
-  const bad = await browser("/api/me/models/chatgpt", { method: "PUT", json: { reviewModel: "no-such-model" } });
+  const bad = await browser("/api/account/models/chatgpt", { method: "PUT", json: { reviewModel: "no-such-model" } });
   check(bad.status === 400, `the reviewer must be a model the plan offers (→ ${bad.status})`);
 
-  const off = (await (await browser("/api/me/models/chatgpt", { method: "PUT", json: { useForReviews: false } })).json()) as { useForReviews: boolean };
-  const gone = (await (await browser("/api/me/models/chatgpt", { method: "DELETE" })).json()) as { connected: boolean };
+  const off = (await (await browser("/api/account/models/chatgpt", { method: "PUT", json: { useForReviews: false } })).json()) as { useForReviews: boolean };
+  const gone = (await (await browser("/api/account/models/chatgpt", { method: "DELETE" })).json()) as { connected: boolean };
   check(!off.useForReviews && !gone.connected, "ChatGPT reviews can be turned off and disconnected");
   await rerunChecks(browser, y);
 }
@@ -412,7 +412,7 @@ async function oauthChecks(probeTask: string) {
     body: new URLSearchParams({ login: "ada", redirect_uri: gh.searchParams.get("redirect_uri")!, scope: gh.searchParams.get("scope") ?? "", state: gh.searchParams.get("state")!, client_id: gh.searchParams.get("client_id")! }),
   });
   await browser(picked.headers.get("Location")!);
-  const me = (await (await browser("/api/me")).json()) as { user: { name: string; email: string } | null };
+  const me = (await (await browser("/api/account")).json()) as { user: { name: string; email: string } | null };
   check(me.user?.email === "ada@forkyard.dev", `signed in with GitHub as ${me.user?.name ?? "nobody"} (Better Auth session)`);
   // The seeded yard has no owner, and in dev mode such yards are visible to every signed-in person.
 

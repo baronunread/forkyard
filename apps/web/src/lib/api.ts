@@ -60,7 +60,7 @@ export async function call<R extends { ok: boolean; status: number; json(): Prom
 const y = client.yards[":yard"];
 const t = y.tasks[":task"];
 
-export type Me = Res<typeof client.me.$get>;
+export type Me = Res<typeof client.account.$get>;
 export type YardList = Res<typeof client.yards.$get>;
 export type Inbox = Res<typeof client.inbox.$get>;
 export type InboxAsk = Inbox["asks"][number];

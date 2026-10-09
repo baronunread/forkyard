@@ -369,7 +369,7 @@ async function aiReview(
     raw = r.text;
     model = `chatgpt:${r.model}`;
   } catch (err) {
-    return { skipped: `ChatGPT failed: ${String(err).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").slice(0, 160)}` };
+    return { skipped: `ChatGPT failed: ${String(err).replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").slice(0, 160)}` };
   }
   const json = /\{[\s\S]*\}/.exec(raw)?.[0];
   if (!json) {

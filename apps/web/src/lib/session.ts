@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import { authClient } from "./auth-client";
 import { meQuery } from "./queries";
 
-/** The signed-in person (Better Auth session via /api/me), or null. */
+/** The signed-in person (Better Auth session via /api/account), or null. */
 export function useMe() {
   return useQuery(meQuery).data ?? null;
 }

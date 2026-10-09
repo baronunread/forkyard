@@ -137,7 +137,7 @@ interface SwarmAgent {
 }
 
 async function main() {
-  const me = await api<{ artifactsMode: string }>("/me");
+  const me = await api<{ artifactsMode: string }>("/account");
   const mode = me.artifactsMode;
   console.log(`Swarm → ${BASE} (Artifacts ${mode}): ${AGENTS} agents on ${TASKS} task(s), ${ROUNDS} push(es) each, ${CONCURRENCY} in flight\n`);
 

@@ -28,7 +28,7 @@ async function ensureYard() {
 
 async function main() {
   await ensureYard();
-  const me = await api<{ artifactsMode: string }>("/me");
+  const me = await api<{ artifactsMode: string }>("/account");
   console.log(`Fork benchmark → ${BASE} (Artifacts ${me.artifactsMode}), yard ${yardId}, ${files} files, ${rounds} rounds\n`);
   const results: { concurrency: number; stats: ReturnType<typeof summarize>; wallMs: number[]; failures: number }[] = [];
   for (const n of levels) {

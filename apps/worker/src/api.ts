@@ -43,7 +43,7 @@ export const api = new Hono<HonoEnv>()
     c.set("principal", await authenticate(c.env, c.req.raw));
     await next();
   })
-  .get("/me", async (c) => {
+  .get("/account", async (c) => {
     const session = await sessionFor(c.env, origin(c.env, c.req.raw), c.req.raw.headers);
     const u = session?.user;
     return c.json({
@@ -56,7 +56,7 @@ export const api = new Hono<HonoEnv>()
 
   // Your public GitHub repos, for "import a repo" when creating a yard. ponytail: public only until
   // sign-in asks for the repo scope (#14).
-  .get("/me/github/repos", async (c) => {
+  .get("/account/github/repos", async (c) => {
     const token = await githubTokenOf(c.env, c.get("principal"), c.req.raw);
     if (!token) return c.json({ connected: false, repos: [] });
     const res = await fetch("https://api.github.com/user/repos?per_page=100&sort=pushed&visibility=public", {
@@ -73,23 +73,23 @@ export const api = new Hono<HonoEnv>()
   .get("/yard-names", zValidator("query", z.object({ name: z.string().max(80).default("") })), async (c) =>
     c.json(await svc.yardNameCheck(c.env, c.get("principal"), origin(c.env, c.req.raw), c.req.valid("query").name)),
   )
-  .get("/me/limits", async (c) => c.json(await limitsReport(c.env, c.get("principal"))))
+  .get("/account/limits", async (c) => c.json(await limitsReport(c.env, c.get("principal"))))
 
   // ── your own model subscription (ChatGPT, through pi-ai), used for reviews in yards you own ──
-  .get("/me/models/chatgpt", async (c) => c.json(await chatgpt.status(c.env, await personOf(c.env, c.req.raw))))
-  .post("/me/models/chatgpt/device", async (c) => c.json(await chatgpt.startDeviceLogin(c.env, await personOf(c.env, c.req.raw))))
-  .post("/me/models/chatgpt/device/poll", async (c) => c.json(await chatgpt.pollDeviceLogin(c.env, await personOf(c.env, c.req.raw))))
-  .post("/me/models/chatgpt/paste", zValidator("json", z.object({ credential: z.string().min(2).max(20_000) })), async (c) => {
+  .get("/account/models/chatgpt", async (c) => c.json(await chatgpt.status(c.env, await personOf(c.env, c.req.raw))))
+  .post("/account/models/chatgpt/device", async (c) => c.json(await chatgpt.startDeviceLogin(c.env, await personOf(c.env, c.req.raw))))
+  .post("/account/models/chatgpt/device/poll", async (c) => c.json(await chatgpt.pollDeviceLogin(c.env, await personOf(c.env, c.req.raw))))
+  .post("/account/models/chatgpt/paste", zValidator("json", z.object({ credential: z.string().min(2).max(20_000) })), async (c) => {
     const user = await personOf(c.env, c.req.raw);
     await chatgpt.save(c.env, user, chatgpt.parsePastedCredential(c.req.valid("json").credential));
     return c.json(await chatgpt.status(c.env, user));
   })
-  .put("/me/models/chatgpt", zValidator("json", z.object({ useForReviews: z.boolean().optional(), model: z.string().max(100).optional(), reviewModel: z.string().max(100).optional() })), async (c) => {
+  .put("/account/models/chatgpt", zValidator("json", z.object({ useForReviews: z.boolean().optional(), model: z.string().max(100).optional(), reviewModel: z.string().max(100).optional() })), async (c) => {
     const user = await personOf(c.env, c.req.raw);
     await chatgpt.setPrefs(c.env, user, c.req.valid("json"));
     return c.json(await chatgpt.status(c.env, user));
   })
-  .delete("/me/models/chatgpt", async (c) => {
+  .delete("/account/models/chatgpt", async (c) => {
     const user = await personOf(c.env, c.req.raw);
     await chatgpt.disconnect(c.env, user);
     return c.json(await chatgpt.status(c.env, user));

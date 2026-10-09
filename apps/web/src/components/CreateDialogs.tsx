@@ -47,8 +47,8 @@ export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o
     placeholderData: (prev) => prev,
   });
   const owner = check.data?.owner ?? "…";
-  const limits = useQuery({ queryKey: ["me", "limits"], queryFn: () => call(client.me.limits.$get()), enabled: open });
-  const repos = useQuery({ queryKey: ["me", "github", "repos"], queryFn: () => call(client.me.github.repos.$get()), enabled: open, staleTime: 60_000 });
+  const limits = useQuery({ queryKey: ["account", "limits"], queryFn: () => call(client.account.limits.$get()), enabled: open });
+  const repos = useQuery({ queryKey: ["account", "github", "repos"], queryFn: () => call(client.account.github.repos.$get()), enabled: open, staleTime: 60_000 });
   const yardsLimit = limits.data?.limits.find((l) => l.key === "yards");
   const atLimit = !!yardsLimit && yardsLimit.limit !== null && yardsLimit.used !== null && yardsLimit.used >= yardsLimit.limit;
   const picked = repos.data?.repos.find((r) => r.fullName === repo) ?? null;
@@ -62,7 +62,7 @@ export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o
     onSuccess: async (y) => {
       toasts.add({ title: "Yard created", description: picked ? `Importing ${picked.fullName}'s open issues into the backlog…` : y.name, variant: "success" });
       await qc.invalidateQueries({ queryKey: ["yards"] });
-      void qc.invalidateQueries({ queryKey: ["me", "limits"] });
+      void qc.invalidateQueries({ queryKey: ["account", "limits"] });
       setOpen(false);
       reset();
       void navigate({ to: "/$owner/$yard", params: { owner: y.owner, yard: y.slug } });
@@ -366,7 +366,7 @@ export function DeleteYardDialog({ yard, name, open, setOpen }: { yard: string; 
       setOpen(false);
       qc.removeQueries({ queryKey: ["yard", yard] });
       await qc.invalidateQueries({ queryKey: ["yards"] });
-      void qc.invalidateQueries({ queryKey: ["me", "limits"] });
+      void qc.invalidateQueries({ queryKey: ["account", "limits"] });
       void navigate({ to: "/" });
     },
     onError: (e) => toastError(e, "Could not delete yard"),

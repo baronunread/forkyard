@@ -21,7 +21,7 @@ const useK2 = arg("k2") === "true";
 const yardId = arg("yard", `evbench-${Date.now().toString(36).slice(-5)}`)!;
 
 async function main() {
-  const me = await api<{ artifactsMode: string }>("/me");
+  const me = await api<{ artifactsMode: string }>("/account");
   await api("/yards", { body: { id: yardId, name: "Event benchmark", files: { "README.md": "# events\n" } } });
   const task = await api<{ task: { id: string }; agents: { id: string }[]; credentials: { apiKey: string }[] }>(`/yards/${yardId}/tasks`, {
     body: { title: "event bench", agents: [{ name: "Pusher", harness: "bench" }] },

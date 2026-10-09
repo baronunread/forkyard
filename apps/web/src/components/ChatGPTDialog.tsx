@@ -6,8 +6,8 @@ import { call, client } from "../lib/api";
 import { toastError } from "../lib/toast";
 import { Button } from "./ui";
 
-const route = client.me.models.chatgpt;
-const KEY = ["me", "chatgpt"];
+const route = client.account.models.chatgpt;
+const KEY = ["account", "chatgpt"];
 
 /**
  * Your own ChatGPT plan runs the cloud agents on your tasks and reviews the forks in yards you

@@ -9,7 +9,7 @@ import { useMe } from "../lib/session";
 /** Your account: who you are, your model subscription, and the hard limits this deployment enforces. */
 export function SettingsPage() {
   const me = useMe();
-  const limits = useQuery({ queryKey: ["me", "limits"], queryFn: () => call(client.me.limits.$get()), refetchInterval: 30_000 });
+  const limits = useQuery({ queryKey: ["account", "limits"], queryFn: () => call(client.account.limits.$get()), refetchInterval: 30_000 });
   const [chatgpt, setChatgpt] = useState(false);
 
   return (

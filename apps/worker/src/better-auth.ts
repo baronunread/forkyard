@@ -29,17 +29,13 @@ const SCOPES = ["openid", "profile", "email", "offline_access", MCP_SCOPE];
 const SEAT_CHOICE_TTL_MS = 10 * 60_000;
 export const ME = "me";
 
-type Auth = ReturnType<typeof createAuth>;
-const instances = new Map<string, Auth>();
-
-/** One Better Auth instance per origin per isolate (bindings don't change within an isolate). */
-export function getAuth(env: Env, origin: string): Auth {
-  let a = instances.get(origin);
-  if (!a) {
-    a = createAuth(env, origin);
-    instances.set(origin, a);
-  }
-  return a;
+/**
+ * A fresh Better Auth instance per call. Never cache one across requests: it sets itself up
+ * lazily, and on Workers a request can't wait on a promise started by another one. If the
+ * first request is cancelled mid-setup, every later request on that isolate hangs.
+ */
+export function getAuth(env: Env, origin: string) {
+  return createAuth(env, origin);
 }
 
 export function socialProviders(env: Env): ("github" | "google")[] {
