@@ -84,7 +84,7 @@ export const api = new Hono<HonoEnv>()
     await chatgpt.save(c.env, user, chatgpt.parsePastedCredential(c.req.valid("json").credential));
     return c.json(await chatgpt.status(c.env, user));
   })
-  .put("/me/models/chatgpt", zValidator("json", z.object({ useForReviews: z.boolean().optional(), model: z.string().max(100).optional() })), async (c) => {
+  .put("/me/models/chatgpt", zValidator("json", z.object({ useForReviews: z.boolean().optional(), model: z.string().max(100).optional(), reviewModel: z.string().max(100).optional() })), async (c) => {
     const user = await personOf(c.env, c.req.raw);
     await chatgpt.setPrefs(c.env, user, c.req.valid("json"));
     return c.json(await chatgpt.status(c.env, user));

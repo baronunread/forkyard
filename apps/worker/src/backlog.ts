@@ -160,7 +160,7 @@ export async function backlogStart(env: Env, p: Principal, yardId: string, id: s
   const item = await backlogGet(env, p, yardId, id);
   if (item.status !== "open") throw new ServiceError(409, `backlog item ${id} is ${item.status}`);
   const title = item.title.length <= TITLE_MAX ? item.title : `${item.title.slice(0, TITLE_MAX - 1)}…`;
-  const res = await taskCreate(env, p, yardId, { title, brief: briefFor(item, item.thread), agents: input.agents, autopilot: input.autopilot });
+  const res = await taskCreate(env, p, yardId, { title, brief: briefFor(item, item.thread), agents: input.agents, autopilot: input.autopilot, review: input.review });
   await env.DB.prepare("UPDATE backlog_items SET status = 'started', task_id = ? WHERE yard_id = ? AND id = ?").bind(res.task.id, yardId, id).run();
   return res;
 }

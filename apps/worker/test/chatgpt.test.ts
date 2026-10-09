@@ -75,6 +75,7 @@ beforeEach(() => {
   db = new DatabaseSync(":memory:");
   db.exec(String(readFileSync(new URL("../migrations/0003_model_credentials.sql", import.meta.url).pathname)));
   db.exec(String(readFileSync(new URL("../migrations/0009_chatgpt_model.sql", import.meta.url).pathname)));
+  db.exec(String(readFileSync(new URL("../migrations/0011_review_model.sql", import.meta.url).pathname)));
   db.exec("CREATE TABLE yard_members (yard_id TEXT, user_id TEXT, role TEXT, created_at TEXT)");
   env = { DB: d1(db), BETTER_AUTH_SECRET: "test-secret-0123456789" } as unknown as Env;
 });
@@ -125,6 +126,10 @@ describe("ChatGPT sign-in for reviews", () => {
       const r = await chatgpt.complete(env, "u1", "You review forks.", "Review this diff.", o.f);
       expect(JSON.parse(r.text)).toMatchObject({ score: 82 });
       expect(r.model).toBe(picked);
+      // A reviewer pick of its own wins over the agents' model.
+      const reviewer = Object.values(OPENAI_CODEX_MODELS)[2]!.id;
+      await chatgpt.setPrefs(env, "u1", { reviewModel: reviewer });
+      expect((await chatgpt.complete(env, "u1", "You review forks.", "Review this diff.", o.f)).model).toBe(reviewer);
     } finally {
       globalThis.fetch = realFetch;
     }

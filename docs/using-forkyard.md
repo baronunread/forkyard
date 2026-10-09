@@ -10,7 +10,7 @@ You decide what should change. Agents do the work, each in its own fork. You hea
 
 Two ways in:
 
-- **New task** (`n`): one line ("Add dark mode"), optional details, and how many agents. Cloud agents start on their own; your own agents (Claude Code, Codex…) take a seat through **Connect an agent**.
+- **New task** (`n`): one line ("Add dark mode"), optional details, and how many agents. Cloud agents start on their own, on your own ChatGPT plan (connect it in **Settings**, and pick the model there); your own agents (Claude Code, Codex…) take a seat through **Connect an agent**.
 - **Backlog**: jot it down with **New item** (or import GitHub issues), and **Start it** when you want agents on it. The item becomes the task's brief.
 
 ## 3. Watch the plans, not the keystrokes
@@ -25,7 +25,7 @@ If an agent needs a product call, it shows up under **Needs you** on Home and on
 
 ## 5. Compare and decide
 
-As agents push, every fork is reviewed and scored.
+As agents push, every fork is checked and scored. With two or more agents, a reviewer model (yours, picked in **Settings**) checks every solution; with one agent, only if you ticked **Have it reviewed**.
 
 - **Changes**: one agent's diff, with its intent and review.
 - **Compare**: one file, every agent's version side by side.

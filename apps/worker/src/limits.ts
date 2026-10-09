@@ -9,7 +9,8 @@ import { ServiceError } from "./service";
  * FORKYARD_PAUSED="true" stops new yards, tasks and model calls outright.
  *
  * Per account (people; the admin key is exempt): yards owned, tasks a day.
- * Whole deployment: agents per task, live forks, cloud-agent tool turns, Workers AI calls a day.
+ * Whole deployment: agents per task, live forks, cloud-agent tool turns. Models run on each
+ * person's own ChatGPT plan, so they cost the deployment nothing.
  */
 export function limits(env: Env) {
   const cap = (v?: string) => num(v, Infinity);
@@ -20,7 +21,6 @@ export function limits(env: Env) {
     agentsPerTask: cap(env.LIMIT_AGENTS_PER_TASK),
     liveForks: cap(env.LIMIT_LIVE_FORKS),
     agentTurns: cap(env.LIMIT_AGENT_TURNS),
-    workersAiPerDay: cap(env.LIMIT_WORKERS_AI_PER_DAY),
   };
 }
 
@@ -62,23 +62,16 @@ export async function assertCanCreateTask(env: Env, p: Principal, agents: number
     limited(`an account can start ${l.tasksPerAccountPerDay} tasks a day`);
 }
 
-/** One Workers AI call (a review or a cloud-agent turn). False once today's budget is spent. */
-export async function spendWorkersAi(env: Env): Promise<boolean> {
-  const l = limits(env);
-  return !l.paused && (await spend(env, "workers-ai", l.workersAiPerDay));
-}
-
 /** The limits and today's use, for the settings page. `limit: null` = no cap on this deployment. */
 export async function limitsReport(env: Env, p: Principal) {
   const l = limits(env);
   const day = new Date().toISOString().slice(0, 10);
   const userId = p.kind === "user" ? p.userId : null;
   const used = (key: string) => env.DB.prepare("SELECT n FROM usage WHERE day = ? AND key = ?").bind(day, key).first<{ n: number }>().then((r) => r?.n ?? 0);
-  const [yards, tasks, forks, ai] = await Promise.all([
+  const [yards, tasks, forks] = await Promise.all([
     userId ? env.DB.prepare("SELECT COUNT(*) AS n FROM yard_members WHERE user_id = ? AND role = 'owner'").bind(userId).first<{ n: number }>().then((r) => r?.n ?? 0) : null,
     userId ? used(`tasks:${userId}`) : null,
     env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE fork_deleted_at IS NULL AND status != 'failed'").first<{ n: number }>().then((r) => r?.n ?? 0),
-    used("workers-ai"),
   ]);
   const row = (key: string, label: string, scope: "account" | "deployment", limit: number, used: number | null, hint: string) => ({
     key,
@@ -96,7 +89,6 @@ export async function limitsReport(env: Env, p: Principal) {
       row("agents", "Agents per task", "deployment", l.agentsPerTask, null, "How many agents one task can fan out to."),
       row("forks", "Live forks", "deployment", l.liveForks, forks, "Deciding or abandoning a task frees its forks."),
       row("turns", "Turns per cloud agent", "deployment", l.agentTurns, null, "A cloud agent is stopped after this many tool calls."),
-      row("ai", "Workers AI calls today", "deployment", l.workersAiPerDay, ai, "Reviews and cloud agents on Workers AI. ChatGPT doesn't count."),
     ],
   };
 }

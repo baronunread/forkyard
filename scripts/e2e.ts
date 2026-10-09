@@ -136,21 +136,29 @@ async function chatgptChecks(browser: Browser) {
   const seen = adaSees.ok ? ((await adaSees.json()) as { yard: { owner: string } }) : null;
   check(seen?.yard.owner === made.owner, `a yard the operator makes for ${made.owner} is theirs (owner ${seen?.yard.owner ?? "none"})`);
   await api(`/yards/${forAda}`, { method: "DELETE" });
-  const t = (await (await browser(`/api/yards/${y}/tasks`, { json: { title: "Say hello", autopilot: false, agents: [{ name: "Kai", harness: "test" }] } })).json()) as {
-    task: { id: string };
-    credentials: { apiKey: string }[];
+  // One agent: reviewed by a model only when asked.
+  const pushOne = async (title: string, review: boolean) => {
+    const t = (await (await browser(`/api/yards/${y}/tasks`, { json: { title, autopilot: false, review, agents: [{ name: "Kai", harness: "test" }] } })).json()) as {
+      task: { id: string };
+      credentials: { apiKey: string }[];
+    };
+    const ws = await new Mcp(t.credentials[0]!.apiKey).call<{ git: { remote: string; token: string } }>("workspace_get");
+    const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${y}-${t.task.id}`, ws.data.git.token, { name: "Kai", email: "kai@e" });
+    await g.write("hello.md", "hello\n");
+    await g.commitAndPush("docs: hello");
+    for (let i = 0; i < 60; i++) {
+      const d = (await (await browser(`/api/yards/${y}/tasks/${t.task.id}`)).json()) as { agents: { review: { reviewer: string } | null }[] };
+      if (d.agents[0]?.review) return d.agents[0].review;
+      await sleep(1000);
+    }
+    return null;
   };
-  const ws = await new Mcp(t.credentials[0]!.apiKey).call<{ git: { remote: string; token: string } }>("workspace_get");
-  const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${y}`, ws.data.git.token, { name: "Kai", email: "kai@e" });
-  await g.write("hello.md", "hello\n");
-  await g.commitAndPush("docs: hello");
-  let review: { reviewer: string } | null = null;
-  for (let i = 0; i < 60 && !review; i++) {
-    const d = (await (await browser(`/api/yards/${y}/tasks/${t.task.id}`)).json()) as { agents: { review: { reviewer: string } | null }[] };
-    review = d.agents[0]?.review ?? null;
-    if (!review) await sleep(1000);
-  }
-  check(!!review && !review.reviewer.startsWith("chatgpt:"), `a review still lands when ChatGPT rejects the token (${review?.reviewer ?? "none"})`);
+  const asked = await pushOne("Say hello", true);
+  check(!!asked && asked.reviewer.includes("ChatGPT failed"), `a review still lands when ChatGPT rejects the token (${asked?.reviewer ?? "none"})`);
+  const unasked = await pushOne("Say hello again", false);
+  check(!!unasked && unasked.reviewer.includes("no review asked"), `one agent, no review asked: checks only (${unasked?.reviewer ?? "none"})`);
+  const bad = await browser("/api/me/models/chatgpt", { method: "PUT", json: { reviewModel: "no-such-model" } });
+  check(bad.status === 400, `the reviewer must be a model the plan offers (→ ${bad.status})`);
 
   const off = (await (await browser("/api/me/models/chatgpt", { method: "PUT", json: { useForReviews: false } })).json()) as { useForReviews: boolean };
   const gone = (await (await browser("/api/me/models/chatgpt", { method: "DELETE" })).json()) as { connected: boolean };

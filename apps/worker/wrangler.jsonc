@@ -58,7 +58,6 @@
         "LOCAL_GIT_ORIGIN": "",
         "FORK_TTL_HOURS": "24",
         "TOKEN_TTL_SECONDS": "14400",
-        "REVIEW_MODEL": "@cf/moonshotai/kimi-k2.7-code",
         "PUBLIC_ORIGIN": "https://forkyard.baronunreadts.workers.dev",
         // Hard limits (src/limits.ts). Workers Paid has no spend cap, so these are it.
         // FORKYARD_PAUSED="true" (redeploy or dashboard var) stops new work at once.
@@ -67,8 +66,7 @@
         "LIMIT_TASKS_PER_ACCOUNT_PER_DAY": "20",
         "LIMIT_AGENTS_PER_TASK": "5",
         "LIMIT_LIVE_FORKS": "50",
-        "LIMIT_AGENT_TURNS": "40",
-        "LIMIT_WORKERS_AI_PER_DAY": "200"
+        "LIMIT_AGENT_TURNS": "40"
         // Secrets (wrangler secret put --env production):
         //   BETTER_AUTH_SECRET                       signs sessions and OAuth state (openssl rand -base64 32)
         //   GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET   GitHub sign-in (callback: <origin>/api/auth/callback/github)
@@ -81,7 +79,6 @@
         // EU yards: create an EU-jurisdiction namespace and uncomment.
         // { "binding": "ARTIFACTS_EU", "namespace": "forkyard-eu" }
       ],
-      "ai": { "binding": "AI" },
       "d1_databases": [
         { "binding": "DB", "database_name": "forkyard", "database_id": "4b3fcbf6-77fc-4ffd-aea6-a675cba9f8eb", "migrations_dir": "migrations" }
       ],

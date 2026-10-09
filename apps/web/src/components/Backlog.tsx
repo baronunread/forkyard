@@ -1,4 +1,4 @@
-import { Dialog, Empty, Input, InputArea, Loader } from "@cloudflare/kumo";
+import { Checkbox, Dialog, Empty, Input, InputArea, Loader } from "@cloudflare/kumo";
 import { ArrowLeft, CaretRight, ChatCircle, GithubLogo, Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -8,7 +8,7 @@ import { ago } from "../lib/format";
 import { toastError, toasts } from "../lib/toast";
 import { Markdown } from "./Markdown";
 import { Button, Card, cx, SectionTitle } from "./ui";
-import { yardParams } from "../lib/queries";
+import { chatgptQuery, yardParams } from "../lib/queries";
 
 /**
  * The yard's backlog (issue #15): tasks that haven't started. GitHub issues come in here once;
@@ -165,6 +165,8 @@ export function BacklogItemPage({ yard, id }: { yard: string; id: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [agents, setAgents] = useState(3);
+  const [review, setReview] = useState(false);
+  const cloudReady = useQuery(chatgptQuery).data?.cloudReady ?? false;
   const params = yardParams(yard);
   const item = useQuery({
     queryKey: ["yard", yard, "backlog", id],
@@ -175,7 +177,7 @@ export function BacklogItemPage({ yard, id }: { yard: string; id: string }) {
       call(
         yardRoute.backlog[":item"].start.$post({
           param: { yard, item: id },
-          json: { autopilot: true, agents: Array.from({ length: agents }, (_, i) => ({ name: ["Ada", "Bash", "Cyd", "Dex", "Eli"][i] ?? `Agent ${i + 1}`, harness: "pi", role: "agent" as const, runner: "cloud" as const })) },
+          json: { autopilot: true, review, agents: Array.from({ length: agents }, (_, i) => ({ name: ["Ada", "Bash", "Cyd", "Dex", "Eli"][i] ?? `Agent ${i + 1}`, harness: "pi", role: "agent" as const, runner: "cloud" as const })) },
         }),
       ),
     onSuccess: (r) => {
@@ -228,7 +230,21 @@ export function BacklogItemPage({ yard, id }: { yard: string; id: string }) {
                 <p className="mt-1 text-[13px] text-body">Cloud agents work on it in parallel, each in its own fork. Autopilot ships the best result.</p>
               </div>
               <Input label="Cloud agents" type="number" min={1} max={5} value={String(agents)} onChange={(e) => setAgents(Math.max(1, Math.min(5, Number(e.target.value) || 1)))} />
-              <Button variant="primary" className="w-full" icon={<Plus />} loading={start.isPending} onClick={() => start.mutate()}>
+              {agents === 1 ? (
+                <Checkbox label="Have it reviewed" checked={review} onCheckedChange={(c) => setReview(!!c)} />
+              ) : (
+                <p className="text-[13px] text-body">A reviewer checks every solution.</p>
+              )}
+              {!cloudReady && (
+                <p className="text-[13px] text-body">
+                  Cloud agents run on your own ChatGPT plan.{" "}
+                  <Link to="/settings" className="underline">
+                    Connect it in Settings
+                  </Link>
+                  .
+                </p>
+              )}
+              <Button variant="primary" className="w-full" icon={<Plus />} loading={start.isPending} disabled={!cloudReady} onClick={() => start.mutate()}>
                 Start with {agents} agent{agents === 1 ? "" : "s"}
               </Button>
             </>

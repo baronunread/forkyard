@@ -14,7 +14,6 @@ import * as chatgpt from "./chatgpt";
 import { agentByForkName, getAgent, getTask, getYard, listIntents, newId, now } from "./db";
 import { computeHunks, forkDiff, mapLimit, readPathAt, readText } from "./diff";
 import type { Env } from "./env";
-import { spendWorkersAi } from "./limits";
 import { mirrorPreviewBranch } from "./preview";
 import { yardStub } from "./yard";
 
@@ -344,6 +343,13 @@ async function aiReview(
   a: Analysis,
 ): Promise<{ score: number; summary: string; comments: ReviewComment[]; model: string } | { skipped: string }> {
   if (files.length === 0) return { skipped: "no files" };
+  const ask = await env.DB.prepare("SELECT t.review, (SELECT COUNT(*) FROM agents a WHERE a.yard_id = t.yard_id AND a.task_id = t.id AND a.role = 'agent') AS n FROM tasks t WHERE t.yard_id = ? AND t.id = ?")
+    .bind(p.yardId, p.taskId)
+    .first<{ review: number; n: number }>();
+  if (ask && ask.n < 2 && !ask.review) return { skipped: "one agent, no review asked" };
+  // The yard owner's own ChatGPT plan reviews; without one, the checks alone score the fork.
+  const owner = await chatgpt.yardReviewer(env, p.yardId);
+  if (!owner) return { skipped: "no ChatGPT plan to review with" };
   const task = await getTask(env.DB, p.yardId, p.taskId);
   const agent = await getAgent(env.DB, p.yardId, p.taskId, p.agentId);
   const prompt = [
@@ -356,42 +362,14 @@ async function aiReview(
   const system =
     'You review one agent\'s fork for a task that several agents attempted in parallel. Judge correctness, scope discipline, and whether the change does what the task asks. Reply with JSON only: {"score": 0-100, "summary": "<= 2 sentences", "comments": [{"path": string|null, "line": number|null, "body": string}]}';
 
-  // The yard owner's own ChatGPT subscription (through pi-ai) when they connected one; Workers AI otherwise.
-  let raw: string | null = null;
-  let model = "";
-  const owner = await chatgpt.yardReviewer(env, p.yardId);
-  if (owner) {
-    try {
-      const r = await chatgpt.complete(env, owner, system, prompt);
-      raw = r.text;
-      model = `chatgpt:${r.model}`;
-    } catch (err) {
-      console.warn("chatgpt review failed; falling back to Workers AI", err);
-    }
-  }
-  if (raw === null) {
-    if (!env.AI) return { skipped: "no Workers AI binding" };
-    if (!(await spendWorkersAi(env))) return { skipped: "daily Workers AI limit reached" };
-    model = `workers-ai:${env.REVIEW_MODEL || "@cf/moonshotai/kimi-k2.7-code"}`;
-    const messages = [
-      { role: "system", content: system },
-      { role: "user", content: prompt },
-    ];
-    // Model output schemas differ across Workers AI models; accept both shapes.
-    // A review is a quick judgment: no thinking, or the reasoning eats the budget and the answer comes back empty.
-    let out: { response?: string | object; choices?: { message?: { content?: string | null }; finish_reason?: string }[] };
-    try {
-      out = (await (env.AI.run as (m: string, i: unknown) => Promise<unknown>)(model.slice("workers-ai:".length), {
-        messages,
-        max_tokens: 6000,
-        response_format: { type: "json_object" },
-        chat_template_kwargs: { thinking: false },
-      })) as typeof out;
-    } catch (err) {
-      return { skipped: `Workers AI failed: ${String(err).slice(0, 160)}` };
-    }
-    raw = typeof out.response === "object" ? JSON.stringify(out.response) : (out.response ?? out.choices?.[0]?.message?.content ?? "");
-    if (!raw) return { skipped: `the model's answer was empty (${out.choices?.[0]?.finish_reason ?? "no finish reason"})` };
+  let raw: string;
+  let model: string;
+  try {
+    const r = await chatgpt.complete(env, owner, system, prompt);
+    raw = r.text;
+    model = `chatgpt:${r.model}`;
+  } catch (err) {
+    return { skipped: `ChatGPT failed: ${String(err).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").slice(0, 160)}` };
   }
   const json = /\{[\s\S]*\}/.exec(raw)?.[0];
   if (!json) {

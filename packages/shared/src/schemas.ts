@@ -321,6 +321,8 @@ export const CreateTaskInput = z.object({
   agents: z.array(AgentSpec).min(1).max(10_000),
   /** Merge the best reviewed fork without asking once the agents settle. Off: a person decides. */
   autopilot: z.boolean().default(true),
+  /** Review a one-agent task with a model too. Two or more agents are always reviewed. */
+  review: z.boolean().optional(),
 });
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 
@@ -451,5 +453,6 @@ export type ImportIssuesInput = z.infer<typeof ImportIssuesInput>;
 export const StartBacklogInput = z.object({
   agents: z.array(AgentSpec).min(1).max(10_000),
   autopilot: z.boolean().default(true),
+  review: z.boolean().optional(),
 });
 export type StartBacklogInput = z.infer<typeof StartBacklogInput>;

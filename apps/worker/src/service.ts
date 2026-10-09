@@ -27,7 +27,7 @@ import {
 } from "@forkyard/shared";
 import { handleOf } from "./better-auth";
 import { disposeRepo, errorCode, getArtifacts } from "./artifacts";
-import { actingAgent, assertAdmin, assertCanDecide, assertMemberOrAdmin, assertPerson, assertTask, assertYard, AuthError, isMember, type Principal } from "./auth";
+import { actingAgent, assertAdmin, assertCanDecide, assertMemberOrAdmin, assertPerson, assertTask, assertYard, AuthError, devMode, isMember, type Principal } from "./auth";
 import {
   getAgent,
   getAsk,
@@ -45,7 +45,7 @@ import {
   now,
   openAsks,
 } from "./db";
-import { ChatGPTError } from "./chatgpt";
+import { ChatGPTError, status as chatgptStatus } from "./chatgpt";
 import { applyDecision, DecideError, previewDecision } from "./decide";
 import { computeHunks, forkDiff, mapLimit, readPathAt } from "./diff";
 import type { Env } from "./env";
@@ -329,6 +329,8 @@ export async function taskCreate(env: Env, p: Principal, yardId: string, input: 
   const yard = await mustYard(env, yardId);
   if (input.id && (await getTask(env.DB, yardId, input.id))) throw new ServiceError(409, `task ${input.id} already exists`);
   await assertCanCreateTask(env, p, input.agents.length);
+  if (input.agents.some((a) => a.runner === "cloud") && !(p.kind === "user" ? await chatgptStatus(env, p.userId) : { cloudReady: devMode(env) }).cloudReady)
+    throw new ServiceError(409, "Cloud agents run on your own ChatGPT plan: connect it in Settings, or seat your own agents.");
   const res = await yardStub(env, yard).createTask(input, p.label, p.kind === "user" ? p.userId : null);
   return { ...res, agents: res.agents.map((a) => ({ ...a, previewUrl: previewUrl(yard, a) })) };
 }

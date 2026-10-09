@@ -119,3 +119,6 @@ export const benchRunsQuery = queryOptions({ queryKey: ["bench"], queryFn: () =>
 export function headsOf(agents: { headCommit: string | null }[]): string {
   return agents.map((a) => a.headCommit ?? "-").join(",");
 }
+
+/** Your ChatGPT plan: whether it's connected, the models you picked, and whether cloud agents can start. */
+export const chatgptQuery = queryOptions({ queryKey: ["me", "chatgpt"], queryFn: () => call(client.me.models.chatgpt.$get()) });

@@ -317,8 +317,8 @@ export class Yard extends DurableObject<Env> {
     const credentials: AgentCredential[] = [];
     const stmts: D1PreparedStatement[] = [
       db
-        .prepare("INSERT INTO tasks (yard_id, id, title, brief, status, base_commit, created_at) VALUES (?, ?, ?, ?, 'open', ?, ?)")
-        .bind(yard.id, taskId, input.title, input.brief, baseCommit, createdAt),
+        .prepare("INSERT INTO tasks (yard_id, id, title, brief, status, base_commit, created_at, review) VALUES (?, ?, ?, ?, 'open', ?, ?, ?)")
+        .bind(yard.id, taskId, input.title, input.brief, baseCommit, createdAt, input.review ? 1 : 0),
     ];
     for (const a of agents) {
       stmts.push(

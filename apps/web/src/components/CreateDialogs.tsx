@@ -1,12 +1,12 @@
-import { ClipboardText, Dialog, Input, InputArea, Select } from "@cloudflare/kumo";
+import { Checkbox, ClipboardText, Dialog, Input, InputArea, Select } from "@cloudflare/kumo";
 import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { yardSlug } from "@forkyard/shared";
 import { z } from "zod";
 import { call, client, yardRoute, type CreatedTask } from "../lib/api";
-import { yardParams } from "../lib/queries";
+import { yardParams, chatgptQuery } from "../lib/queries";
 import { toastError, toasts } from "../lib/toast";
 import { Button, cx } from "./ui";
 
@@ -190,9 +190,19 @@ export function CreateTaskDialog({ yard, open, setOpen, initialBrief = "" }: { y
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [created, setCreated] = useState<CreatedTask | null>(null);
+  const [review, setReview] = useState(false);
+  // Cloud agents run on your own ChatGPT plan; without one, only your own agents can take seats.
+  const cloudReady = useQuery({ ...chatgptQuery, enabled: open }).data?.cloudReady ?? false;
+  const cloudOf = (cloud: number) => (cloudReady ? cloud : 0);
   const create = useMutation({
     mutationFn: (v: z.infer<typeof TaskForm>) =>
-      call(yardRoute.tasks.$post({ param: { yard }, query: {}, json: { title: v.title, brief: v.brief, autopilot: true, agents: agentSpecs(v.cloud, v.local) } })),
+      call(
+        yardRoute.tasks.$post({
+          param: { yard },
+          query: {},
+          json: { title: v.title, brief: v.brief, autopilot: true, review, agents: agentSpecs(cloudOf(v.cloud), v.local) },
+        }),
+      ),
     onSuccess: (r) => {
       const task = r as unknown as CreatedTask;
       void qc.invalidateQueries({ queryKey: ["yard", yard] });
@@ -257,9 +267,22 @@ export function CreateTaskDialog({ yard, open, setOpen, initialBrief = "" }: { y
                     type="number"
                     min={0}
                     max={1000}
-                    value={String(f.state.value)}
+                    value={String(cloudOf(f.state.value))}
+                    disabled={!cloudReady}
                     onChange={(e) => f.handleChange(Number(e.target.value) || 0)}
-                    description="Agents that run here, on your ChatGPT plan if it's connected."
+                    description={
+                      cloudReady ? (
+                        "Agents that run here, on your ChatGPT plan."
+                      ) : (
+                        <>
+                          They run on your own ChatGPT plan.{" "}
+                          <Link to="/settings" className="underline">
+                            Connect it in Settings
+                          </Link>
+                          .
+                        </>
+                      )
+                    }
                     error={firstError(f.state.meta.errors)}
                   />
                 )}
@@ -278,9 +301,18 @@ export function CreateTaskDialog({ yard, open, setOpen, initialBrief = "" }: { y
                 )}
               </form.Field>
             </div>
+            <form.Subscribe selector={(s) => cloudOf(s.values.cloud) + s.values.local}>
+              {(n) =>
+                n === 1 ? (
+                  <Checkbox label="Have it reviewed" checked={review} onCheckedChange={(c) => setReview(!!c)} />
+                ) : n > 1 ? (
+                  <p className="text-[13px] text-body">With more than one agent, a reviewer checks every solution.</p>
+                ) : null
+              }
+            </form.Subscribe>
             <div className="flex justify-end gap-2 pt-2">
               <Button onClick={close}>Cancel</Button>
-              <form.Subscribe selector={(s) => [s.canSubmit, s.values.cloud + s.values.local, s.values.title.trim().length > 0] as const}>
+              <form.Subscribe selector={(s) => [s.canSubmit, cloudOf(s.values.cloud) + s.values.local, s.values.title.trim().length > 0] as const}>
                 {([canSubmit, n, hasTitle]) => (
                   <Button type="submit" variant="primary" loading={create.isPending} disabled={!canSubmit || !hasTitle || n < 1}>
                     Start {n} agent{n === 1 ? "" : "s"}

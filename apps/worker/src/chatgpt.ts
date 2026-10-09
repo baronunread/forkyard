@@ -25,10 +25,12 @@ export const CHATGPT_MODELS = Object.values(OPENAI_CODEX_MODELS).map((m) => ({ i
 // ponytail: the default is the catalog's last (newest) entry; it may not be on every plan, so people pick.
 const DEFAULT_MODEL = CHATGPT_MODELS.at(-1)?.id ?? "";
 
-/** The model a person's cloud agents and reviews use on their ChatGPT plan. */
-export async function modelOf(env: Env, userId: string): Promise<string> {
-  const row = await env.DB.prepare("SELECT model FROM model_credentials WHERE user_id = ? AND provider_id = ?").bind(userId, CHATGPT).first<{ model: string | null }>();
-  return row?.model ?? DEFAULT_MODEL;
+/** The model a person's reviews use on their ChatGPT plan: their reviewer pick, else their agents' model. */
+async function reviewModelOf(env: Env, userId: string): Promise<string> {
+  const row = await env.DB.prepare("SELECT model, review_model FROM model_credentials WHERE user_id = ? AND provider_id = ?")
+    .bind(userId, CHATGPT)
+    .first<{ model: string | null; review_model: string | null }>();
+  return row?.review_model ?? row?.model ?? DEFAULT_MODEL;
 }
 
 // The Codex CLI's public OAuth client and endpoints (the same ones pi-ai uses).
@@ -155,13 +157,16 @@ export interface ChatGPTStatus {
   label: string | null;
   useForReviews: boolean;
   model: string;
+  reviewModel: string;
   models: { id: string; name: string }[];
+  /** Cloud agents can start: they run on this plan (locally, a scripted model stands in). */
+  cloudReady: boolean;
   pending: { userCode: string; verificationUri: string; intervalSeconds: number; expiresAt: number } | null;
 }
 
 export async function status(env: Env, userId: string): Promise<ChatGPTStatus> {
   const [row, pending] = await Promise.all([
-    env.DB.prepare("SELECT label, use_for_reviews, model FROM model_credentials WHERE user_id = ? AND provider_id = ?").bind(userId, CHATGPT).first<{ label: string | null; use_for_reviews: number; model: string | null }>(),
+    env.DB.prepare("SELECT label, use_for_reviews, model, review_model FROM model_credentials WHERE user_id = ? AND provider_id = ?").bind(userId, CHATGPT).first<{ label: string | null; use_for_reviews: number; model: string | null; review_model: string | null }>(),
     env.DB.prepare("SELECT user_code, interval_s, expires_at FROM model_device_logins WHERE user_id = ? AND provider_id = ? AND expires_at > ?")
       .bind(userId, CHATGPT, Date.now())
       .first<{ user_code: string; interval_s: number; expires_at: number }>(),
@@ -171,7 +176,9 @@ export async function status(env: Env, userId: string): Promise<ChatGPTStatus> {
     label: row?.label ?? null,
     useForReviews: !!row?.use_for_reviews,
     model: row?.model ?? DEFAULT_MODEL,
+    reviewModel: row?.review_model ?? row?.model ?? DEFAULT_MODEL,
     models: CHATGPT_MODELS,
+    cloudReady: !!row || env.FORKYARD_DEV === "true",
     pending: pending ? { userCode: pending.user_code, verificationUri: DEVICE_VERIFICATION_URI, intervalSeconds: pending.interval_s, expiresAt: pending.expires_at } : null,
   };
 }
@@ -187,10 +194,12 @@ export async function save(env: Env, userId: string, cred: ChatGPTCredential): P
     .run();
 }
 
-export async function setPrefs(env: Env, userId: string, prefs: { useForReviews?: boolean; model?: string }): Promise<void> {
-  if (prefs.model !== undefined && !CHATGPT_MODELS.some((m) => m.id === prefs.model)) throw new ChatGPTError("Unknown ChatGPT model", 400);
-  await env.DB.prepare("UPDATE model_credentials SET use_for_reviews = COALESCE(?, use_for_reviews), model = COALESCE(?, model) WHERE user_id = ? AND provider_id = ?")
-    .bind(prefs.useForReviews === undefined ? null : prefs.useForReviews ? 1 : 0, prefs.model ?? null, userId, CHATGPT)
+export async function setPrefs(env: Env, userId: string, prefs: { useForReviews?: boolean; model?: string; reviewModel?: string }): Promise<void> {
+  for (const m of [prefs.model, prefs.reviewModel]) if (m !== undefined && !CHATGPT_MODELS.some((x) => x.id === m)) throw new ChatGPTError("Unknown ChatGPT model", 400);
+  await env.DB.prepare(
+    "UPDATE model_credentials SET use_for_reviews = COALESCE(?, use_for_reviews), model = COALESCE(?, model), review_model = COALESCE(?, review_model) WHERE user_id = ? AND provider_id = ?",
+  )
+    .bind(prefs.useForReviews === undefined ? null : prefs.useForReviews ? 1 : 0, prefs.model ?? null, prefs.reviewModel ?? null, userId, CHATGPT)
     .run();
 }
 
@@ -359,7 +368,7 @@ export async function complete(env: Env, userId: string, system: string, prompt:
   const credentials = oneCredential(cred);
   const models = createModels({ credentials });
   models.setProvider(codexProviderSync());
-  const model = models.getModel(CHATGPT, await modelOf(env, userId)) ?? models.getModels(CHATGPT)[0];
+  const model = models.getModel(CHATGPT, await reviewModelOf(env, userId)) ?? models.getModels(CHATGPT)[0];
   if (!model) throw new ChatGPTError("pi-ai has no ChatGPT models");
   const context: Context = { systemPrompt: system, messages: [{ role: "user", content: prompt, timestamp: Date.now() }] };
   // SSE, not pi-ai's default WebSocket: Workers can't open an outbound WebSocket with custom headers.

@@ -24,8 +24,6 @@ export interface Env {
   // State
   DB: D1Database;
   YARD: DurableObjectNamespace<Yard>;
-  /** Workers AI model for cloud agents when the task owner hasn't connected ChatGPT. */
-  PI_AGENT_MODEL?: string;
   /** Cloud agents: one Pi Durable harness per agent seat. */
   PI_AGENT: DurableObjectNamespace<PiAgent>;
 
@@ -34,7 +32,6 @@ export interface Env {
   REVIEW_WORKFLOW: Workflow<ReviewParams>;
   /** Imports a GitHub repo's open issues into a new yard's backlog, surviving the browser. */
   ISSUE_IMPORT_WORKFLOW: Workflow<IssueImportParams>;
-  AI?: Ai;
   /** Autopilot merges the best fork once every agent's head is reviewed and the task has been quiet this long (default 15000). */
   AUTOPILOT_QUIET_MS?: string;
   /** The lowest review score autopilot merges without asking (default 60). */
@@ -43,7 +40,6 @@ export interface Env {
   REVIEW_CONCURRENCY?: string;
   /** "off" skips the review pipeline on push (diagnostics; overlaps then come from claims only). */
   REVIEWS?: string;
-  REVIEW_MODEL?: string;
 
   // K2 spike (optional)
   EVENTS_K2?: K2Producer;

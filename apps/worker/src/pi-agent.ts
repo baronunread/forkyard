@@ -6,14 +6,13 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@ear
 import { createRegistry, Harness, type ToolRegistration } from "@earendil-works/pi-durable";
 import { Agent } from "agents";
 import { PiHarness } from "agents/harness/pi";
-import { createAI } from "agents/models/pi-ai";
 import { disposeRepo, getArtifacts, treeReader } from "./artifacts";
 import * as chatgpt from "./chatgpt";
 import { getAgent, getTask, getYard } from "./db";
 import { readPathAt, treeChanges, commitTree } from "./diff";
 import type { Env } from "./env";
 import { buildCommit, type FileChange } from "./git/build";
-import { limits, spendWorkersAi } from "./limits";
+import { limits } from "./limits";
 import { yardStub } from "./yard";
 
 /**
@@ -22,10 +21,8 @@ import { yardStub } from "./yard";
  * claim paths, record intent, push, and ask a person. Every step is committed before it's
  * shown, so an eviction mid-run resumes where it stopped.
  *
- * Models, first available:
- *  - the task owner's ChatGPT plan (Pi's Codex provider; they connect it in the account menu);
- *  - Workers AI (`PI_AGENT_MODEL`, default @cf/moonshotai/kimi-k2.7-code);
- *  - locally, a scripted model that does a small, real piece of work, so the loop runs offline.
+ * Model: the task owner's ChatGPT plan and the model they picked (Pi's Codex provider). Locally,
+ * without one, a scripted model does a small, real piece of work, so the loop runs offline.
  *
  * Local agents (Claude Code, Codex CLI, …) join the same task over MCP; both kinds compete.
  */
@@ -40,7 +37,6 @@ export interface PiAgentSeat {
 
 const RUN = "task";
 const CHECK_SECONDS = 15;
-const WORKERS_AI_DEFAULT = "@cf/moonshotai/kimi-k2.7-code";
 
 const Path = Type.Object({ path: Type.String({ description: "File path from the repo root, no leading slash" }) });
 const Write = Type.Object({ path: Type.String(), content: Type.String({ description: "The whole new file content" }) });
@@ -60,7 +56,6 @@ export class PiAgent extends Agent<Env> {
       this.registry.install({ name: "forkyard", sections: [{ key: "forkyard", render: () => this.instructions(), tag: false }], tools: this.tools() });
       const models = createModels({ credentials: this.credentials() });
       models.setProvider(chatgpt.codexProviderSync());
-      if (this.env.AI) models.setProvider(createAI({ binding: this.env.AI }).provider);
       models.setProvider(this.scripted.provider);
       this.scripted.setResponses(Array.from({ length: 12 }, () => scriptedStep));
       return Harness.open(storage, { models, registry: this.registry }, context);
@@ -106,8 +101,8 @@ export class PiAgent extends Agent<Env> {
   private async pickModel(seat: PiAgentSeat): Promise<{ provider: string; id: string }> {
     const plan = seat.ownerUserId ? await chatgpt.status(this.env, seat.ownerUserId) : null;
     if (plan?.connected) return { provider: chatgpt.CHATGPT, id: plan.model };
-    if (this.env.AI) return { provider: "cloudflare", id: this.env.PI_AGENT_MODEL || WORKERS_AI_DEFAULT };
-    return { provider: "scripted", id: "demo" };
+    if (this.env.FORKYARD_DEV === "true") return { provider: "scripted", id: "demo" };
+    throw new Error("Cloud agents run on the task owner's ChatGPT plan, and none is connected.");
   }
 
   /** The owner's ChatGPT credential, fresh, for Pi's Codex provider. Refresh is serialized in D1. */
@@ -175,23 +170,19 @@ export class PiAgent extends Agent<Env> {
   // ── tools ─────────────────────────────────────────────────────────────────
 
   /**
-   * Hard limits per turn: LIMIT_AGENT_TURNS tool calls per agent, and each turn on Workers AI
-   * spends one call of today's LIMIT_WORKERS_AI_PER_DAY. Past either, the run is aborted.
+   * Hard limit per turn: LIMIT_AGENT_TURNS tool calls per agent. Past it, the run is aborted.
    * ponytail: counts tool calls, not model calls; a reply with no tool call ends the run anyway.
    */
   private metered<A extends unknown[], R>(execute: (...args: A) => Promise<R>) {
     return async (...args: A): Promise<R> => {
       this.ctx.storage.sql.exec("INSERT INTO seat (k, v) VALUES ('turns', '1') ON CONFLICT (k) DO UPDATE SET v = CAST(v AS INTEGER) + 1");
       const turns = Number(this.ctx.storage.sql.exec<{ v: string }>("SELECT v FROM seat WHERE k = 'turns'").one().v);
-      const provider = this.ctx.storage.sql.exec<{ v: string }>("SELECT v FROM seat WHERE k = 'provider'").toArray()[0]?.v;
       const over =
         turns > limits(this.env).agentTurns
           ? `turn limit reached (${limits(this.env).agentTurns})`
-          : provider === "cloudflare" && !(await spendWorkersAi(this.env))
-            ? "today's Workers AI budget is spent"
-            : limits(this.env).paused
-              ? "Forkyard is paused"
-              : null;
+          : limits(this.env).paused
+            ? "Forkyard is paused"
+            : null;
       if (over) {
         this.ctx.waitUntil(this.harness.session().abort());
         throw new Error(`Stopped: ${over}.`);
