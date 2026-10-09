@@ -149,6 +149,22 @@ async function cloudAgentChecks() {
   await api(`${path}/abandon`, { body: { reason: "e2e done" } });
 }
 
+async function backlogChecks() {
+  const item = await api<{ id: string; status: string }>(`/yards/${yardId}/backlog`, {
+    body: { title: "Backlog item", body: "## Goal\n\n- [ ] a task list\n\n| a | b |\n| - | - |\n| 1 | 2 |" },
+  });
+  check(item.status === "open", "a person files a backlog item (markdown body)");
+  const started = await api<{ task: { id: string; brief: string } }>(`/yards/${yardId}/backlog/${item.id}/start`, {
+    body: { agents: [{ name: "Starter", runner: "cloud" }] },
+  });
+  const after = await api<{ status: string; taskId: string }>(`/yards/${yardId}/backlog/${item.id}`);
+  check(after.status === "started" && after.taskId === started.task.id && started.task.brief.includes("| a | b |"), "starting it creates a task with the item as its brief");
+  await expectStatus(api(`/yards/${yardId}/backlog/${item.id}/start`, { body: { agents: [{ name: "Again", runner: "cloud" }] } }), 409, "an item starts once");
+  await api(`/yards/${yardId}/tasks/${started.task.id}/abandon`, { body: { reason: "e2e done" } });
+  const back = await api<{ status: string }>(`/yards/${yardId}/backlog/${item.id}`);
+  check(back.status === "open", "abandoning its task puts the item back in the backlog");
+}
+
 async function main() {
   console.log(`e2e → ${BASE}\n`);
   const seed = await run("bun", ["scripts/seed.ts", "--pace=fast", `--yard=${yardId}`], { env: process.env, maxBuffer: 8 << 20 });
@@ -227,6 +243,7 @@ async function main() {
 
   await autopilotChecks();
   await cloudAgentChecks();
+  await backlogChecks();
 
   await api(`/yards/${yardId}/tasks/${t2.task.id}/abandon`, { body: { reason: "e2e done" } });
 

@@ -4,6 +4,9 @@ import {
   AskInput,
   ClaimInput,
   CreateTaskInput,
+  FileBacklogInput,
+  ImportIssuesInput,
+  StartBacklogInput,
   CreateYardInput,
   DecideInput,
   IntentInput,
@@ -16,6 +19,7 @@ import { ME, origin, recordSeatChoice, sessionFor } from "./better-auth";
 import * as chatgpt from "./chatgpt";
 import type { Env } from "./env";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
+import * as backlog from "./backlog";
 import { limitsReport } from "./limits";
 import * as svc from "./service";
 
@@ -114,6 +118,23 @@ export const api = new Hono<HonoEnv>()
   .post("/yards/:yard/k2/poll", zValidator("param", yardParam), zValidator("json", z.object({ seconds: z.number().default(60) })), async (c) =>
     c.json(await svc.startK2Poll(c.env, c.get("principal"), c.req.valid("param").yard, c.req.valid("json").seconds)),
   )
+
+  // ── backlog: tasks that haven't started ──
+  .get("/yards/:yard/backlog", zValidator("param", yardParam), async (c) => c.json(await backlog.backlogList(c.env, c.get("principal"), c.req.valid("param").yard)))
+  .post("/yards/:yard/backlog", zValidator("param", yardParam), zValidator("json", FileBacklogInput), async (c) =>
+    c.json(await backlog.backlogFile(c.env, c.get("principal"), c.req.valid("param").yard, c.req.valid("json")), 201),
+  )
+  .post("/yards/:yard/backlog/import/github", zValidator("param", yardParam), zValidator("json", ImportIssuesInput), async (c) =>
+    c.json(await backlog.backlogImportGithub(c.env, c.get("principal"), c.req.valid("param").yard, c.req.valid("json").repo)),
+  )
+  .get("/yards/:yard/backlog/:item", zValidator("param", z.object({ yard: z.string(), item: z.string() })), async (c) => {
+    const { yard, item } = c.req.valid("param");
+    return c.json(await backlog.backlogGet(c.env, c.get("principal"), yard, item));
+  })
+  .post("/yards/:yard/backlog/:item/start", zValidator("param", z.object({ yard: z.string(), item: z.string() })), zValidator("json", StartBacklogInput), async (c) => {
+    const { yard, item } = c.req.valid("param");
+    return c.json(await backlog.backlogStart(c.env, c.get("principal"), yard, item, c.req.valid("json")), 201);
+  })
 
   // ── tasks ──
   .get("/yards/:yard/tasks", zValidator("param", yardParam), async (c) => c.json(await svc.taskList(c.env, c.get("principal"), c.req.valid("param").yard)))

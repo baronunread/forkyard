@@ -378,3 +378,46 @@ export const BenchStats = z.object({
   mean: z.number(),
 });
 export type BenchStats = z.infer<typeof BenchStats>;
+
+// ── backlog: tasks that haven't started ────────────────────────────────────
+
+export const BacklogStatus = z.enum(["open", "started", "done", "dropped"]);
+export type BacklogStatus = z.infer<typeof BacklogStatus>;
+
+export const BacklogComment = z.object({ author: z.string(), body: z.string(), createdAt: z.string() });
+export type BacklogComment = z.infer<typeof BacklogComment>;
+
+export const BacklogItem = z.object({
+  id: z.string(),
+  yardId: z.string(),
+  title: z.string(),
+  body: z.string(),
+  labels: z.array(z.string()),
+  author: z.string(),
+  source: z.enum(["forkyard", "github"]),
+  sourceRef: z.string().nullable(),
+  status: BacklogStatus,
+  taskId: z.string().nullable(),
+  createdAt: z.string(),
+  comments: z.number(),
+});
+export type BacklogItem = z.infer<typeof BacklogItem>;
+
+export const FileBacklogInput = z.object({
+  title: z.string().trim().min(1).max(200),
+  body: z.string().max(60_000).default(""),
+  labels: z.array(z.string().max(50)).max(20).default([]),
+});
+export type FileBacklogInput = z.infer<typeof FileBacklogInput>;
+
+export const ImportIssuesInput = z.object({
+  /** owner/repo on GitHub. Open issues only; pull requests are skipped. */
+  repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/, "owner/repo"),
+});
+export type ImportIssuesInput = z.infer<typeof ImportIssuesInput>;
+
+export const StartBacklogInput = z.object({
+  agents: z.array(AgentSpec).min(1).max(10_000),
+  autopilot: z.boolean().default(true),
+});
+export type StartBacklogInput = z.infer<typeof StartBacklogInput>;

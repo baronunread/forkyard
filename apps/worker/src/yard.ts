@@ -903,6 +903,7 @@ export class Yard extends DurableObject<Env> {
     await this.env.DB.batch([
       this.env.DB.prepare("UPDATE tasks SET status = 'decided', decided_at = ? WHERE yard_id = ? AND id = ?").bind(decision.createdAt, yard.id, decision.taskId),
       this.env.DB.prepare("UPDATE agents SET status = 'retired' WHERE yard_id = ? AND task_id = ? AND status != 'failed'").bind(yard.id, decision.taskId),
+      this.env.DB.prepare("UPDATE backlog_items SET status = 'done' WHERE yard_id = ? AND task_id = ?").bind(yard.id, decision.taskId),
     ]);
     this.sql.exec("DELETE FROM claims WHERE task_id = ?", decision.taskId);
     this.sql.exec("UPDATE overlaps SET active = 0 WHERE task_id = ?", decision.taskId);
@@ -917,6 +918,8 @@ export class Yard extends DurableObject<Env> {
     await this.env.DB.batch([
       this.env.DB.prepare("UPDATE tasks SET status = 'abandoned', decided_at = ? WHERE yard_id = ? AND id = ? AND status = 'open'").bind(now(), yard.id, taskId),
       this.env.DB.prepare("UPDATE agents SET status = 'retired' WHERE yard_id = ? AND task_id = ? AND status != 'failed'").bind(yard.id, taskId),
+      // Its backlog item goes back to the backlog, ready to start again.
+      this.env.DB.prepare("UPDATE backlog_items SET status = 'open' WHERE yard_id = ? AND task_id = ? AND status = 'started'").bind(yard.id, taskId),
     ]);
     this.sql.exec("DELETE FROM claims WHERE task_id = ?", taskId);
     this.sql.exec("UPDATE overlaps SET active = 0 WHERE task_id = ?", taskId);

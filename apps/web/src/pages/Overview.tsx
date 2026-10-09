@@ -5,6 +5,7 @@ import { useHotkeys } from "@tanstack/react-hotkeys";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { AskCard } from "../components/AskCard";
+import { Backlog } from "../components/Backlog";
 import { CreateTaskDialog, CreateYardDialog } from "../components/CreateDialogs";
 import { Button, Card, cx, Dot, SectionTitle } from "../components/ui";
 import type { YardList, YardStatus } from "../lib/api";
@@ -300,6 +301,8 @@ function YardOverview({ yard }: { yard: string }) {
           </Card>
         )}
       </Section>
+
+      <Backlog yard={yard} />
 
       {done.length > 0 && (
         <Section

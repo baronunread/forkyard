@@ -192,3 +192,25 @@
   code, kbd, pre { @apply font-mono; }
   button:not(:disabled) { cursor: pointer; }
 }
+
+/* Markdown (backlog items, comments): GitHub-flavored, quiet. */
+.md { @apply text-[14px] leading-6 text-fg break-words; }
+.md > * + * { @apply mt-3; }
+.md h1, .md h2, .md h3, .md h4 { @apply font-semibold; }
+.md h1 { @apply text-h3; }
+.md h2 { @apply text-[15px]; }
+.md h3, .md h4 { @apply text-[14px]; }
+.md a { @apply underline underline-offset-2 hover:text-body; }
+.md ul { @apply list-disc pl-5; }
+.md ol { @apply list-decimal pl-5; }
+.md li + li { @apply mt-1; }
+.md li > input[type="checkbox"] { @apply mr-1.5 align-middle; }
+.md ul:has(> li > input[type="checkbox"]) { @apply list-none pl-0; }
+.md code { @apply rounded bg-hover px-1 py-0.5 font-mono text-[12.5px]; }
+.md pre { @apply overflow-x-auto rounded-md bg-hover p-3; }
+.md pre code { @apply bg-transparent p-0; }
+.md blockquote { @apply border-l-2 border-line pl-3 text-body; }
+.md table { @apply block overflow-x-auto border-collapse text-[13px]; }
+.md th, .md td { @apply border border-line px-2 py-1 text-left; }
+.md hr { @apply border-line; }
+.md img { @apply max-w-full rounded; }
