@@ -350,7 +350,7 @@ export class Yard extends DurableObject<Env> {
   private async uniqueTaskId(base: string): Promise<string> {
     const yard = await this.yard();
     for (let i = 1; ; i++) {
-      const id = i === 1 ? base : `${base.slice(0, 21)}-${i}`;
+      const id = i === 1 ? base : `${slugify(base, 23 - String(i).length)}-${i}`;
       if (this.reservedTaskIds.has(id)) continue;
       this.reservedTaskIds.add(id);
       const r = await this.env.DB.prepare("SELECT 1 FROM tasks WHERE yard_id = ? AND id = ?").bind(yard.id, id).first();
