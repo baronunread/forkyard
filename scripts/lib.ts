@@ -30,7 +30,7 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
     body: init.body ? JSON.stringify(init.body) : undefined,
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`${init.method ?? "GET"} ${path} → ${res.status}: ${text}`);
+  if (!res.ok) throw new Error(`${init.method ?? (init.body ? "POST" : "GET")} ${path} → ${res.status}: ${text}`);
   return (text ? JSON.parse(text) : null) as T;
 }
 

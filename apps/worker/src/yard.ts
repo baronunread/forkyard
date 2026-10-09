@@ -395,13 +395,26 @@ export class Yard extends DurableObject<Env> {
     }
   }
 
+  /** Every fork ends ready or failed, never stuck in "forking": an unexpected error fails the seat. */
   private async forkOne(base: Repo, task: Task, agent: Agent): Promise<Agent> {
+    try {
+      return await this.forkOnce(base, task, agent);
+    } catch (err) {
+      console.error("fork failed", agent.forkName, err);
+      await this.env.DB.prepare("UPDATE agents SET status = 'failed' WHERE yard_id = ? AND task_id = ? AND id = ?").bind(task.yardId, task.id, agent.id).run();
+      const failed = { ...agent, status: "failed" as const };
+      await this.append({ type: "agent.failed", taskId: task.id, agentId: agent.id, data: { agent: failed, error: err instanceof Error ? err.message : String(err) } });
+      return failed;
+    }
+  }
+
+  private async forkOnce(base: Repo, task: Task, agent: Agent): Promise<Agent> {
     const t0 = performance.now();
     const description = `Forkyard ${task.yardId}/${task.id} — ${agent.name}`;
     let remote: string | null = null;
     let token: string | null = null;
     let lastErr: unknown = null;
-    for (let attempt = 0; attempt < 3 && !remote; attempt++) {
+    for (let attempt = 0; attempt < 5 && !remote; attempt++) {
       try {
         // A fork that hangs is retried like one that failed, instead of leaving the seat stuck.
         const res = await Promise.race([
@@ -414,12 +427,18 @@ export class Yard extends DurableObject<Env> {
         lastErr = err;
         const code = errorCode(err);
         if (code === "ALREADY_EXISTS") {
-          // Idempotent retry of a fan-out: adopt the existing fork.
-          const existing = await this.artifacts().get(agent.forkName);
+          // Idempotent retry of a fan-out: adopt the existing fork. An earlier attempt that
+          // errored may still be creating it, so "not found" here means wait and look again.
           try {
-            remote = (await existing.info()).remote;
-          } finally {
-            disposeRepo(existing);
+            const existing = await this.artifacts().get(agent.forkName);
+            try {
+              remote = (await existing.info()).remote;
+            } finally {
+              disposeRepo(existing);
+            }
+          } catch (adoptErr) {
+            lastErr = adoptErr;
+            await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
           }
         } else if (code === "INTERNAL_ERROR" || code === "UPSTREAM_UNAVAILABLE" || code === "FORK_IN_PROGRESS" || code === "FORK_TIMEOUT") {
           await new Promise((r) => setTimeout(r, 150 * 2 ** attempt));
