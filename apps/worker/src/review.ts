@@ -378,17 +378,20 @@ async function aiReview(
       { role: "user", content: prompt },
     ];
     // Model output schemas differ across Workers AI models; accept both shapes.
-    // Reasoning models think before they answer: the budget has to cover both, or the answer comes back empty.
-    const out = (await (env.AI.run as (m: string, i: unknown) => Promise<unknown>)(model.slice("workers-ai:".length), {
-      messages,
-      max_tokens: 6000,
-      response_format: { type: "json_object" },
-    })) as {
-      response?: string | object;
-      choices?: { message?: { content?: string | null }; finish_reason?: string }[];
-    };
+    // A review is a quick judgment: no thinking, or the reasoning eats the budget and the answer comes back empty.
+    let out: { response?: string | object; choices?: { message?: { content?: string | null }; finish_reason?: string }[] };
+    try {
+      out = (await (env.AI.run as (m: string, i: unknown) => Promise<unknown>)(model.slice("workers-ai:".length), {
+        messages,
+        max_tokens: 6000,
+        response_format: { type: "json_object" },
+        chat_template_kwargs: { thinking: false },
+      })) as typeof out;
+    } catch (err) {
+      return { skipped: `Workers AI failed: ${String(err).slice(0, 160)}` };
+    }
     raw = typeof out.response === "object" ? JSON.stringify(out.response) : (out.response ?? out.choices?.[0]?.message?.content ?? "");
-    if (!raw) console.warn("workers ai review came back empty", model, out.choices?.[0]?.finish_reason);
+    if (!raw) return { skipped: `the model's answer was empty (${out.choices?.[0]?.finish_reason ?? "no finish reason"})` };
   }
   const json = /\{[\s\S]*\}/.exec(raw)?.[0];
   if (!json) {
