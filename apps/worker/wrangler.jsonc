@@ -43,7 +43,10 @@
     // bursts arrive in batches the consumer routes concurrently.
     "consumers": [{ "queue": "forkyard-artifact-events", "max_batch_size": 100, "max_batch_timeout": 1, "max_retries": 5 }]
   },
-  "workflows": [{ "name": "forkyard-review", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" }],
+  "workflows": [
+    { "name": "forkyard-review", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" },
+    { "name": "forkyard-issue-import", "binding": "ISSUE_IMPORT_WORKFLOW", "class_name": "IssueImportWorkflow" }
+  ],
   "triggers": { "crons": ["17 * * * *"] },
 
   "env": {
@@ -93,7 +96,10 @@
         "producers": [{ "binding": "ARTIFACT_EVENTS", "queue": "forkyard-artifact-events" }],
         "consumers": [{ "queue": "forkyard-artifact-events", "max_batch_size": 100, "max_batch_timeout": 1, "max_retries": 5, "max_concurrency": 10 }]
       },
-      "workflows": [{ "name": "forkyard-review", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" }],
+      "workflows": [
+    { "name": "forkyard-review", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" },
+    { "name": "forkyard-issue-import", "binding": "ISSUE_IMPORT_WORKFLOW", "class_name": "IssueImportWorkflow" }
+  ],
       "triggers": { "crons": ["17 * * * *"] }
       // K2 spike (see docs/decisions/events.md): create a stream and uncomment.
       // "k2": [{ "binding": "EVENTS_K2", "stream": "<STREAM_ID>" }],

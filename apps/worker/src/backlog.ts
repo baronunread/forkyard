@@ -1,8 +1,12 @@
 import type { BacklogComment, BacklogItem, FileBacklogInput, StartBacklogInput } from "@forkyard/shared";
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import { NonRetryableError } from "cloudflare:workflows";
+import { githubAccessToken } from "./better-auth";
 import { assertMemberOrAdmin, assertYard, type Principal } from "./auth";
 import { getYard, now } from "./db";
 import type { Env } from "./env";
 import { ServiceError, taskCreate } from "./service";
+import { yardStubById } from "./yard";
 
 /**
  * The backlog (issue #15): tasks that haven't started. An item is a title and a markdown body
@@ -154,4 +158,45 @@ export async function backlogStart(env: Env, p: Principal, yardId: string, id: s
   const res = await taskCreate(env, p, yardId, { title, brief: briefFor(item, item.thread), agents: input.agents, autopilot: input.autopilot });
   await env.DB.prepare("UPDATE backlog_items SET status = 'started', task_id = ? WHERE yard_id = ? AND id = ?").bind(res.task.id, yardId, id).run();
   return res;
+}
+
+export interface IssueImportParams {
+  yardId: string;
+  repo: string;
+  /** Whose GitHub sign-in token to use (fetched inside the step, never stored in the instance); null: anonymous. */
+  userId: string | null;
+  origin: string;
+}
+
+/**
+ * A yard started from a GitHub repo brings its open issues along. A Workflow, so the import
+ * finishes even when the browser that created the yard is gone. Re-running is safe: imported
+ * issues are skipped, so a retry after a rate limit picks up where it stopped.
+ */
+export class IssueImportWorkflow extends WorkflowEntrypoint<Env, IssueImportParams> {
+  override async run(event: Readonly<WorkflowEvent<IssueImportParams>>, step: WorkflowStep) {
+    const { yardId, repo, userId, origin } = event.payload;
+    let result = { imported: 0, skipped: 0, error: null as string | null };
+    try {
+      // GitHub's rate limit resets hourly: 2, 4, 8, 16, 32 minutes covers it.
+      const r = await step.do("import issues", { retries: { limit: 5, delay: "2 minutes", backoff: "exponential" }, timeout: "10 minutes" }, async () => {
+        const token = userId ? await githubAccessToken(this.env, origin, userId) : null;
+        try {
+          return await backlogImportGithub(this.env, { kind: "admin", via: "dev", label: "issue-import" }, yardId, repo, token);
+        } catch (err) {
+          if (err instanceof ServiceError && err.status !== 429 && err.status < 500) throw new NonRetryableError(err.message);
+          throw err;
+        }
+      });
+      result = { ...r, error: null };
+    } catch (err) {
+      result.error = err instanceof Error ? err.message : String(err);
+    }
+    await step.do("tell the yard", async () => {
+      // The yard may have been deleted meanwhile.
+      await (await yardStubById(this.env, yardId))?.stub.append({ type: "backlog.imported", taskId: null, agentId: null, data: { repo, ...result } });
+      return true;
+    });
+    return result;
+  }
 }

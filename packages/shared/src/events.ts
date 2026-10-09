@@ -61,6 +61,7 @@ export const YardEvent = z.discriminatedUnion("type", [
   ev("fork.deleted", z.object({ forkName: z.string() })),
   ev("ask.opened", z.object({ ask: Ask })),
   ev("ask.answered", z.object({ ask: Ask })),
+  ev("backlog.imported", z.object({ repo: z.string(), imported: z.number(), skipped: z.number(), error: z.string().nullable() })),
 ]);
 export type YardEvent = z.infer<typeof YardEvent>;
 export type YardEventType = YardEvent["type"];
@@ -129,5 +130,7 @@ export function describeEvent(e: YardEvent, agentName: (id: string | null) => st
       return e.agentId ? `${who} asked for help: ${e.data.ask.question}` : `needs a decision: ${e.data.ask.question}`;
     case "ask.answered":
       return `${e.data.ask.answeredBy ?? "someone"} answered: ${e.data.ask.answer ?? ""}`;
+    case "backlog.imported":
+      return e.data.error ? `couldn't import issues from ${e.data.repo}: ${e.data.error}` : `imported ${e.data.imported} issues from ${e.data.repo}`;
   }
 }

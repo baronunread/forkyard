@@ -14,6 +14,7 @@ import { yardStub } from "./yard";
 export { Yard } from "./yard";
 export { LocalArtifacts } from "./artifacts/emulator";
 export { ReviewWorkflow } from "./review";
+export { IssueImportWorkflow } from "./backlog";
 export { PiAgent } from "./pi-agent";
 
 const app = new Hono<HonoEnv>();

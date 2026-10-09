@@ -241,6 +241,8 @@ export async function yardCreate(env: Env, p: Principal, input: CreateYardInput,
   if (p.kind === "user")
     await env.DB.prepare("INSERT INTO yard_members (yard_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)").bind(yard.id, p.userId, now()).run();
   await yardStub(env, yard).init(yard);
+  const gh = input.importUrl?.match(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/);
+  if (gh) await env.ISSUE_IMPORT_WORKFLOW.create({ params: { yardId: id, repo: gh[1]!, userId: p.kind === "user" ? p.userId : null, origin } });
   return yard;
 }
 

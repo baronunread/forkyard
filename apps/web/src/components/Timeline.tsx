@@ -9,7 +9,7 @@ const GROUPS: Record<string, string[]> = {
   overlaps: ["overlap.detected", "overlap.cleared", "claim.added", "claim.released"],
   intents: ["intent.recorded"],
   reviews: ["review.started", "review.completed"],
-  lifecycle: ["task.created", "agent.forking", "agent.ready", "agent.failed", "agent.status", "decision.made", "task.abandoned", "fork.deleted", "yard.created"],
+  lifecycle: ["task.created", "agent.forking", "agent.ready", "agent.failed", "agent.status", "decision.made", "task.abandoned", "fork.deleted", "yard.created", "backlog.imported"],
 };
 
 function ago(ts: string, now: number): string {

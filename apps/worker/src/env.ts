@@ -1,3 +1,4 @@
+import type { IssueImportParams } from "./backlog";
 import type { LocalArtifacts } from "./artifacts/emulator";
 import type { PiAgent } from "./pi-agent";
 import type { Yard } from "./yard";
@@ -31,6 +32,8 @@ export interface Env {
   // Events and review pipeline
   ARTIFACT_EVENTS?: Queue;
   REVIEW_WORKFLOW: Workflow<ReviewParams>;
+  /** Imports a GitHub repo's open issues into a new yard's backlog, surviving the browser. */
+  ISSUE_IMPORT_WORKFLOW: Workflow<IssueImportParams>;
   AI?: Ai;
   /** Autopilot merges the best fork once every agent's head is reviewed and the task has been quiet this long (default 15000). */
   AUTOPILOT_QUIET_MS?: string;

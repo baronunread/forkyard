@@ -61,15 +61,6 @@ export function CreateYardDialog({ open, setOpen }: { open: boolean; setOpen: (o
     mutationFn: () => call(client.yards.$post({ json: { name: name.trim(), importUrl: picked?.cloneUrl, jurisdiction: "default" } })),
     onSuccess: async (y) => {
       toasts.add({ title: "Yard created", description: y.name, variant: "success" });
-      // From a GitHub repo: its open issues come along as the backlog (in the background).
-      if (picked)
-        call(yardRoute.backlog.import.github.$post({ param: { yard: y.id }, json: { repo: picked.fullName } })).then(
-          (r) => {
-            if (r.imported) toasts.add({ title: `Imported ${r.imported} issue${r.imported === 1 ? "" : "s"}`, description: picked.fullName, variant: "success" });
-            void qc.invalidateQueries({ queryKey: ["yard", y.id, "backlog"] });
-          },
-          (e) => toastError(e, "Could not import issues"),
-        );
       await qc.invalidateQueries({ queryKey: ["yards"] });
       void qc.invalidateQueries({ queryKey: ["me", "limits"] });
       setOpen(false);
