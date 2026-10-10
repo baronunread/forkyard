@@ -177,7 +177,14 @@ export function BacklogItemPage({ yard, id }: { yard: string; id: string }) {
       call(
         yardRoute.backlog[":item"].start.$post({
           param: { yard, item: id },
-          json: { autopilot: true, review, agents: Array.from({ length: agents }, (_, i) => ({ name: ["Ada", "Bash", "Cyd", "Dex", "Eli"][i] ?? `Agent ${i + 1}`, harness: "pi", role: "agent" as const, runner: "cloud" as const })) },
+          json: {
+            autopilot: true,
+            review,
+            // Without ChatGPT, the task starts with one seat for your own agent (handed over from the task page).
+            agents: cloudReady
+              ? Array.from({ length: agents }, (_, i) => ({ name: ["Ada", "Bash", "Cyd", "Dex", "Eli"][i] ?? `Agent ${i + 1}`, harness: "pi", role: "agent" as const, runner: "cloud" as const }))
+              : [{ name: "Claude", harness: "agent", role: "agent" as const, runner: "mcp" as const }],
+          },
         }),
       ),
     onSuccess: (r) => {
@@ -229,23 +236,23 @@ export function BacklogItemPage({ yard, id }: { yard: string; id: string }) {
                 <SectionTitle>Start it</SectionTitle>
                 <p className="mt-1 text-[13px] text-body">Cloud agents work on it in parallel, each in its own fork. Autopilot ships the best result.</p>
               </div>
-              <Input label="Cloud agents" type="number" min={1} max={5} value={String(agents)} onChange={(e) => setAgents(Math.max(1, Math.min(5, Number(e.target.value) || 1)))} />
-              {agents === 1 ? (
+              {cloudReady && <Input label="Cloud agents" type="number" min={1} max={5} value={String(agents)} onChange={(e) => setAgents(Math.max(1, Math.min(5, Number(e.target.value) || 1)))} />}
+              {agents === 1 || !cloudReady ? (
                 <Checkbox label="Have it reviewed" checked={review} onCheckedChange={(c) => setReview(!!c)} />
               ) : (
                 <p className="text-[13px] text-body">A reviewer checks every solution.</p>
               )}
               {!cloudReady && (
                 <p className="text-[13px] text-body">
-                  Cloud agents run on your own ChatGPT plan.{" "}
+                  Your own agent takes it from the task page. For cloud agents, connect ChatGPT in{" "}
                   <Link to="/settings" className="underline">
-                    Connect it in Settings
+                    Settings
                   </Link>
                   .
                 </p>
               )}
-              <Button variant="primary" className="w-full" icon={<Plus />} loading={start.isPending} disabled={!cloudReady} onClick={() => start.mutate()}>
-                Start with {agents} agent{agents === 1 ? "" : "s"}
+              <Button variant="primary" className="w-full" icon={<Plus />} loading={start.isPending} onClick={() => start.mutate()}>
+                {cloudReady ? `Start with ${agents} agent${agents === 1 ? "" : "s"}` : "Start for your agent"}
               </Button>
             </>
           ) : (

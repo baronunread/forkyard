@@ -3,7 +3,7 @@ import { useForm } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { yardSlug } from "@forkyard/shared";
+import { slugify, yardSlug } from "@forkyard/shared";
 import { z } from "zod";
 import { call, client, yardRoute, type CreatedTask } from "../lib/api";
 import { yardParams, chatgptQuery } from "../lib/queries";
@@ -296,7 +296,7 @@ export function CreateTaskDialog({ yard, open, setOpen, initialBrief = "" }: { y
                     max={1000}
                     value={String(f.state.value)}
                     onChange={(e) => f.handleChange(Number(e.target.value) || 0)}
-                    description="Seats for Claude Code, Codex and others, over MCP."
+                    description="Claude Code, Codex or any agent you run, over plain git."
                   />
                 )}
               </form.Field>
@@ -325,9 +325,20 @@ export function CreateTaskDialog({ yard, open, setOpen, initialBrief = "" }: { y
           <div className="space-y-3">
             <Dialog.Title className="text-h2">Task started.</Dialog.Title>
             <Dialog.Description className="text-sm text-body">
-              {created.agents.some((a) => a.harness === "pi") ? "Cloud agents are already working. " : ""}Point your own agents at this MCP server: each signs in and takes a seat.
+              {created.agents.some((a) => a.harness === "pi") ? "Cloud agents are already working. " : ""}Give each of your agents its line. It clones its own fork and Forkyard tells it the rest.
             </Dialog.Description>
-            <ClipboardText text={`${location.origin}/mcp`} />
+            {created.agents
+              .filter((a) => a.harness !== "pi")
+              .map((a) => (
+                <ClipboardText key={a.id} text={`Work on this Forkyard task: git clone ${location.origin}/git/${yardParams(yard).owner}/${yardParams(yard).yard}/${created.task.id}/${a.id}.git, then follow what it prints.`} />
+              ))}
+            <p className="text-[13px] text-body">
+              First time? Make a token in{" "}
+              <Link to="/settings" className="underline">
+                Settings → Git access
+              </Link>{" "}
+              and clone once with it.
+            </p>
             <details className="text-sm">
               <summary className="cursor-pointer text-body">Headless agents: use an API key instead</summary>
               <p className="mt-2 text-xs text-body">
@@ -349,6 +360,50 @@ export function CreateTaskDialog({ yard, open, setOpen, initialBrief = "" }: { y
             </div>
           </div>
         )}
+      </Dialog>
+    </Dialog.Root>
+  );
+}
+
+/**
+ * Hand a task to your own agent: one line it can act on. Cloning a new name takes a seat, and
+ * Forkyard tells the agent the task and how to work in git's own output.
+ */
+export function AddAgentDialog({ yard, task, initialName, open, setOpen }: { yard: string; task: string; initialName: string; open: boolean; setOpen: (o: boolean) => void }) {
+  const [name, setName] = useState(initialName);
+  const p = yardParams(yard);
+  const seat = slugify(name, 20).length >= 2 ? slugify(name, 20) : "agent";
+  const line = `Work on this Forkyard task: git clone ${location.origin}/git/${p.owner}/${p.yard}/${task}/${seat}.git, then follow what it prints.`;
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog className="space-y-4 p-6" size="base">
+        <Dialog.Title className="text-h2">Add your agent</Dialog.Title>
+        <Dialog.Description className="text-sm text-body">
+          Give this to Claude Code, Codex or any agent that can run git. It gets its own fork, and Forkyard tells it the task and who else is on it.
+        </Dialog.Description>
+        <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+        <p className="rounded-md border border-line bg-surface px-3 py-2 font-mono text-[13px] [overflow-wrap:anywhere] text-fg">{line}</p>
+        <p className="text-[13px] text-body">
+          First time? Make a token in{" "}
+          <Link to="/settings" className="underline">
+            Settings → Git access
+          </Link>{" "}
+          and clone once with it. Git remembers it, so your agents never see it.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button onClick={() => setOpen(false)}>Done</Button>
+          <Button
+            variant="primary"
+            onClick={() =>
+              void navigator.clipboard.writeText(line).then(
+                () => toasts.add({ title: "Copied", description: "Paste it to your agent.", variant: "success" }),
+                (e) => toastError(e, "Could not copy"),
+              )
+            }
+          >
+            Copy
+          </Button>
+        </div>
       </Dialog>
     </Dialog.Root>
   );

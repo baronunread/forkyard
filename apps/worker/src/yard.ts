@@ -7,6 +7,7 @@ import {
   forkName,
   initialsFor,
   normalizePattern,
+  parseIntentMarkdown,
   pickAgentColor,
   slugify,
   summarize,
@@ -34,7 +35,7 @@ import { disposeRepo, errorCode, getArtifacts, type Repo } from "./artifacts";
 import { agentFromRow, askFromRow, getAsk, getTask, getYard, latestIntents, latestReviews, listAgents, newId, now, sha256Hex } from "./db";
 import { applyDecision, DecideError } from "./decide";
 import { piAgentStub } from "./pi-agent";
-import { mapLimit } from "./diff";
+import { mapLimit, readPathAt } from "./diff";
 import { num, type Env } from "./env";
 
 /**
@@ -491,6 +492,37 @@ export class Yard extends DurableObject<Env> {
     return p;
   }
 
+  /**
+   * A seat taken by cloning: a person's own agent clones /git/<owner>/<yard>/<task>/<name>.git
+   * and that name becomes its seat, forked on the spot. Racing clones of one name share the
+   * row (INSERT OR IGNORE) and the fork (an existing fork is adopted).
+   */
+  async addSeat(taskId: string, agentId: string, harness: string): Promise<Agent> {
+    const yard = await this.yard();
+    await this.assertOpen(taskId);
+    const agents = await listAgents(this.env.DB, yard.id, taskId);
+    if (!agents.some((a) => a.id === agentId)) {
+      if (agents.length >= yard.budgets.maxAgentsPerTask) throw new Error(`budget: at most ${yard.budgets.maxAgentsPerTask} agents per task in this yard`);
+      const live = await this.env.DB.prepare("SELECT COUNT(*) AS n FROM agents WHERE yard_id = ? AND fork_deleted_at IS NULL AND status != 'failed'")
+        .bind(yard.id)
+        .first<{ n: number }>();
+      if ((live?.n ?? 0) >= yard.budgets.maxActiveForks) throw new Error(`budget: this yard allows ${yard.budgets.maxActiveForks} live forks`);
+      const name = agentId.charAt(0).toUpperCase() + agentId.slice(1);
+      const color = pickAgentColor(name, agents.map((a) => a.color));
+      const res = await this.env.DB.prepare(
+        `INSERT OR IGNORE INTO agents (yard_id, task_id, id, name, harness, role, color, initials, status, fork_name, created_at)
+         VALUES (?, ?, ?, ?, ?, 'agent', ?, ?, 'forking', ?, ?)`,
+      )
+        .bind(yard.id, taskId, agentId, name, harness, color.hex, initialsFor(name), forkName(yard.id, taskId, agentId), now())
+        .run();
+      if (res.meta.changes) {
+        const row = await this.env.DB.prepare("SELECT * FROM agents WHERE yard_id = ? AND task_id = ? AND id = ?").bind(yard.id, taskId, agentId).first();
+        await this.append({ type: "agent.forking", taskId, agentId, data: { agent: agentFromRow(row!) } });
+      }
+    }
+    return this.waitForAgent(taskId, agentId);
+  }
+
   async workspace(taskId: string, agentId: string, remote: string): Promise<Workspace> {
     const yard = await this.yard();
     const agent = await this.waitForAgent(taskId, agentId);
@@ -548,6 +580,80 @@ export class Yard extends DurableObject<Env> {
     ].join("\n");
   }
 
+  /**
+   * What Forkyard says in an agent's own git output, as "remote:" lines. On clone: the task and
+   * how to work here. On push: the plan read from .forkyard/intent.md (recorded and claimed, so
+   * overlapping plans are caught before code), anything other agents did that touches it, and
+   * the last review. On fetch: what changed around it. Git is the whole interface.
+   */
+  async gitNews(taskId: string, agentId: string, kind: "clone" | "fetch" | "push", taskUrl: string): Promise<string[]> {
+    const yard = await this.yard();
+    const task = await getTask(this.env.DB, yard.id, taskId);
+    const agents = await listAgents(this.env.DB, yard.id, taskId);
+    const me = agents.find((a) => a.id === agentId);
+    if (!task || !me) return [];
+    const others = agents.filter((a) => a.id !== agentId && a.status !== "failed");
+    const intents = await latestIntents(this.env.DB, yard.id, taskId);
+    const who = others.length
+      ? others
+          .slice(0, 6)
+          .map((a) => `  ${a.name}: ${intents.get(a.id)?.summary ?? a.status}`)
+          .concat(others.length > 6 ? [`  …and ${others.length - 6} more`] : [])
+      : ["  Nobody else yet."];
+    if (kind === "clone") {
+      const brief = task.brief.trim().split("\n").slice(0, 12);
+      return [
+        `Forkyard · ${task.title}`,
+        `You are ${me.name}, working on your own fork of ${yard.name}.`,
+        ...(brief[0] ? ["", ...brief] : []),
+        "",
+        "Also on this task:",
+        ...who,
+        "",
+        "How to work here:",
+        "  1. Plan first: write .forkyard/intent.md (# what you'll do, ## Why, ## Files: one path per line),",
+        "     commit it and git push. Forkyard answers in the push output if someone else plans the same files.",
+        "  2. Commit small, push often, only to this remote. Keep intent.md current; every push is reviewed.",
+        "  3. Forkyard merges the best work. You never touch the main branch.",
+        `Follow along: ${taskUrl}`,
+      ];
+    }
+
+    const lines: string[] = [];
+    let head: string | null = null;
+    let notes: string[] = [];
+    if (kind === "fetch") notes = this.takeNotes(taskId, agentId);
+    else {
+      const repo = await this.artifacts().get(me.forkName);
+      try {
+        head = (await repo.log({ ref: yard.defaultBranch, limit: 1 }))[0]?.hash ?? null;
+        const md = head ? await readPathAt(repo, head, ".forkyard/intent.md") : null;
+        const plan = md?.text ? parseIntentMarkdown(md.text) : null;
+        if (!plan) lines.push("No plan yet: write .forkyard/intent.md (# what, ## Why, ## Files) so people and other agents know what you're doing.");
+        else if (task.status === "open") {
+          const input = { summary: plan.summary, why: plan.why, details: plan.details ?? undefined };
+          if (intents.get(agentId)?.summary !== plan.summary) {
+            notes = (await this.plan(taskId, agentId, { ...input, files: plan.files }, "git", head)).notes;
+            const files = plan.files.length ? ` (files: ${plan.files.slice(0, 5).join(", ")}${plan.files.length > 5 ? ", …" : ""})` : "";
+            lines.push(`Plan recorded: “${plan.summary}”${files}`);
+          } else notes = plan.files.length ? (await this.claim(taskId, agentId, plan.files)).notes : this.takeNotes(taskId, agentId);
+        }
+      } finally {
+        disposeRepo(repo);
+      }
+    }
+    const last = (await latestReviews(this.env.DB, yard.id, taskId)).get(agentId);
+    return [
+      kind === "push" ? `Forkyard · got ${me.name}'s push${head ? ` (${head.slice(0, 7)})` : ""}. Reviewing it now.` : `Forkyard · ${task.title}`,
+      ...lines,
+      ...notes.map((n) => `Heads up: ${n}`),
+      ...(last ? [`Last review (${last.commit.slice(0, 7)}): ${last.score}/100. ${last.summary.split("\n")[0]}`] : []),
+      "Also on this task:",
+      ...who,
+      `Follow along: ${taskUrl}`,
+    ];
+  }
+
   // ── claims and overlaps ───────────────────────────────────────────────────
 
   private claimsFor(taskId: string): Claim[] {
@@ -591,9 +697,15 @@ export class Yard extends DurableObject<Env> {
    * Plans before code: what the agent means to do and the files it expects to touch, in one
    * step. Agents planning the same files hear about each other before either writes a line.
    */
-  async plan(taskId: string, agentId: string, input: IntentInput & { files: string[] }): Promise<{ intent: Intent; claims: Claim[]; overlaps: Overlap[]; notes: string[] }> {
+  async plan(
+    taskId: string,
+    agentId: string,
+    input: IntentInput & { files: string[] },
+    source: Intent["source"] = "mcp",
+    commit: string | null = null,
+  ): Promise<{ intent: Intent; claims: Claim[]; overlaps: Overlap[]; notes: string[] }> {
     await this.assertOpen(taskId);
-    const intent = await this.recordIntent(taskId, agentId, input, "mcp");
+    const intent = await this.recordIntent(taskId, agentId, input, source, commit);
     return { intent, ...(await this.claim(taskId, agentId, input.files)) };
   }
 
@@ -939,15 +1051,30 @@ export class Yard extends DurableObject<Env> {
       .bind(yard.id, review.taskId, review.agentId, review.commit)
       .run();
     await this.append({ type: "review.completed", taskId: review.taskId, agentId: review.agentId, data: { review } });
-    // Free the slot. If the agent pushed while this review ran, review its newest head next.
-    this.sql.exec("DELETE FROM reviews_inflight WHERE task_id = ? AND agent_id = ?", review.taskId, review.agentId);
-    const row = await this.env.DB.prepare("SELECT head_commit FROM agents WHERE yard_id = ? AND task_id = ? AND id = ?")
-      .bind(yard.id, review.taskId, review.agentId)
-      .first<{ head_commit: string | null }>();
-    if (row?.head_commit && row.head_commit !== review.commit)
-      this.sql.exec("INSERT OR IGNORE INTO reviews_pending (task_id, agent_id, queued_at) VALUES (?, ?, ?)", review.taskId, review.agentId, Date.now());
-    await this.drainReviews();
+    await this.freeReviewSlot(review.taskId, review.agentId, review.commit);
     if (this.autopilotOf(review.taskId) === "waiting") await this.wakeAt(Date.now() + this.quietMs());
+  }
+
+  /** Free an agent's review slot. If it pushed while this review ran, review its newest head next. */
+  private async freeReviewSlot(taskId: string, agentId: string, commit: string): Promise<void> {
+    const yard = await this.yard();
+    this.sql.exec("DELETE FROM reviews_inflight WHERE task_id = ? AND agent_id = ?", taskId, agentId);
+    const row = await this.env.DB.prepare("SELECT head_commit FROM agents WHERE yard_id = ? AND task_id = ? AND id = ?")
+      .bind(yard.id, taskId, agentId)
+      .first<{ head_commit: string | null }>();
+    if (row?.head_commit && row.head_commit !== commit)
+      this.sql.exec("INSERT OR IGNORE INTO reviews_pending (task_id, agent_id, queued_at) VALUES (?, ?, ?)", taskId, agentId, Date.now());
+    await this.drainReviews();
+  }
+
+  /** A push with no code yet (only .forkyard/, such as the plan): nothing to review, the agent is still working. */
+  async nothingToReview(taskId: string, agentId: string, commit: string): Promise<void> {
+    const yard = await this.yard();
+    const res = await this.env.DB.prepare("UPDATE agents SET status = 'working' WHERE yard_id = ? AND task_id = ? AND id = ? AND status = 'pushed' AND head_commit = ?")
+      .bind(yard.id, taskId, agentId, commit)
+      .run();
+    if (res.meta.changes) await this.append({ type: "agent.status", taskId, agentId, data: { status: "working", note: "pushed its plan" } });
+    await this.freeReviewSlot(taskId, agentId, commit);
   }
 
   /** A review gave up (its Workflow failed): free the slot and let the queue move. */

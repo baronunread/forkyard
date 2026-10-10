@@ -2,8 +2,12 @@ import { actingAgent, AuthError, isMember, principalForToken, type Principal } f
 import { disposeRepo, getArtifacts } from "./artifacts";
 import { origin } from "./better-auth";
 import { getAgent, getTask, getYard, newId, now, sha256Hex } from "./db";
+import { concat, fromUtf8, utf8 } from "./git/objects";
+import { FLUSH } from "./git/pktline";
+import { band } from "./git/server";
+import { yardStub } from "./yard";
 import type { Env } from "./env";
-import type { Yard } from "@forkyard/shared";
+import { Slug, type Yard } from "@forkyard/shared";
 
 /**
  * Git at Forkyard's own address: /git/<owner>/<yard>/<task>/<agent>.git for a seat's fork, and
@@ -11,7 +15,9 @@ import type { Yard } from "@forkyard/shared";
  * the person's access token (or a headless seat's fy_ key) as its password, kept by their
  * credential helper, so an agent runs plain `git clone` / `git push` and never holds a secret.
  * Forkyard checks the seat, mints a minutes-long Artifacts token for that one fork, and
- * streams the request through.
+ * streams the request through. A person's agent takes a seat just by cloning a new name on an open
+ * task, and Forkyard talks back in git's own output ("remote: …"): the task on clone, the plan it
+ * read, overlaps and reviews on push.
  */
 const SEAT = /^\/git\/([^/]+)\/([^/]+)\/([^/]+)\/([^/]+)\.git(\/.*)?$/;
 const YARD = /^\/git\/([^/]+)\/([^/]+)\.git(\/.*)?$/;
@@ -50,14 +56,106 @@ export async function gitProxy(env: Env, req: Request): Promise<Response> {
     if (err instanceof AuthError) return say(403, `Forkyard: ${err.message}`);
     throw err;
   }
-  const agent = await getAgent(env.DB, yard.id, taskId, agentId);
+  let agent = await getAgent(env.DB, yard.id, taskId, agentId);
+  if (!agent && p.kind === "user" && Slug.safeParse(agentId).success) {
+    // Cloning a new name on an open task takes a seat: the fork is made now.
+    try {
+      agent = await yardStub(env, yard).addSeat(taskId, agentId, "git");
+    } catch (err) {
+      return say(403, `Forkyard: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   if (!agent?.forkRemote) return say(404, `Forkyard: ${agentId} has no fork on ${taskId}`);
+  const taskUrl = `${origin(env, req)}/${owner}/${slug}/t/${taskId}`;
+  const news = (kind: "clone" | "fetch" | "push") => yardStub(env, yard).gitNews(taskId, agentId, kind, taskUrl);
 
   if (pushing) {
     const task = await getTask(env.DB, yard.id, taskId);
     if (task?.status !== "open" || agent.status === "retired") return say(403, `Forkyard: ${taskId} is ${task?.status ?? "gone"}; its forks take no more pushes`);
   }
-  return forward(env, req, yard.jurisdiction, agent.forkName, rest + url.search, pushing ? "write" : "read");
+  if (req.method !== "POST") return forward(env, req, yard.jurisdiction, agent.forkName, rest + url.search, pushing ? "write" : "read");
+
+  if (pushing) {
+    const res = await forward(env, req, yard.jurisdiction, agent.forkName, rest, "write");
+    const buf = new Uint8Array(await res.arrayBuffer());
+    const ok = res.ok && buf[4] === 1 && fromUtf8(buf.subarray(-4)) === "0000" && fromUtf8(buf).includes("unpack ok");
+    const lines = ok ? await news("push").catch((err) => [`Forkyard: ${err instanceof Error ? err.message : String(err)}`]) : [];
+    return new Response(lines.length ? concat([buf.subarray(0, -4), say2(lines), FLUSH]) : buf, res);
+  }
+  // A fetch or clone: the request is a short list of wants/haves, so read it to tell the two apart.
+  const body = new Uint8Array(await new Response(req.headers.get("Content-Encoding") === "gzip" ? req.body!.pipeThrough(new DecompressionStream("gzip")) : req.body).arrayBuffer());
+  const headers = new Headers(req.headers);
+  headers.delete("Content-Encoding");
+  const res = await forward(env, new Request(req.url, { method: "POST", headers, body }), yard.jurisdiction, agent.forkName, rest, "read");
+  if (!res.ok || !res.body) return res;
+  const kind = fromUtf8(body).includes("have ") ? "fetch" : "clone";
+  return new Response(appendRemoteLines(res.body, () => news(kind).catch(() => [])), res);
+}
+
+/** Lines git prints as "remote: …" (side-band channel 2). */
+const say2 = (lines: string[]) => band(2, utf8(lines.map((l) => `${l}\n`).join("")));
+
+/**
+ * Stream a fetch response through and, if it carries a pack over side-band, add Forkyard's lines
+ * just before the closing flush. Responses without a pack (negotiation rounds, ref listings) pass
+ * untouched, since an extra channel-2 packet there would break git.
+ */
+function appendRemoteLines(body: ReadableStream<Uint8Array>, lines: () => Promise<string[]>): ReadableStream<Uint8Array> {
+  let head: Uint8Array = new Uint8Array(0);
+  let mode: "sniff" | "pass" | "hold" = "sniff";
+  let held: Uint8Array = new Uint8Array(0);
+  const push = (chunk: Uint8Array, ctl: TransformStreamDefaultController<Uint8Array>) => {
+    if (mode === "pass") return ctl.enqueue(chunk);
+    held = concat([held, chunk]);
+    if (held.length > 4) {
+      ctl.enqueue(held.slice(0, -4));
+      held = held.slice(-4);
+    }
+  };
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, ctl) {
+        if (mode !== "sniff") return push(chunk, ctl);
+        head = concat([head, chunk]);
+        const s = sniffPack(head);
+        if (s === "unknown" && head.length < 65536) return;
+        mode = s === "pack" ? "hold" : "pass";
+        push(head, ctl);
+      },
+      async flush(ctl) {
+        if (mode === "sniff") {
+          mode = sniffPack(head) === "pack" ? "hold" : "pass";
+          push(head, ctl);
+        }
+        if (mode === "hold") {
+          if (fromUtf8(held) === "0000") {
+            const l = await lines();
+            if (l.length) ctl.enqueue(say2(l));
+          }
+          ctl.enqueue(held);
+        }
+      },
+    }),
+  );
+}
+
+/** Does this upload-pack response go on to send a pack over side-band (protocol v0 or v2)? */
+function sniffPack(buf: Uint8Array): "pack" | "none" | "unknown" {
+  for (let i = 0; i + 4 <= buf.length; ) {
+    const len = parseInt(fromUtf8(buf.subarray(i, i + 4)), 16);
+    if (Number.isNaN(len)) return "none";
+    if (len < 4) {
+      i += 4;
+      continue;
+    }
+    if (i + len > buf.length) return "unknown";
+    const data = buf.subarray(i + 4, i + len);
+    const text = fromUtf8(data);
+    if (text === "packfile\n" || data[0] === 1 || data[0] === 2) return "pack";
+    if (!/^(ACK|NAK|acknowledgments|ready|shallow|unshallow|wanted-refs|shallow-info)/.test(text)) return "none";
+    i += len;
+  }
+  return "unknown";
 }
 
 /** Stream one git request to an Artifacts repo with a minutes-long token minted for it. */

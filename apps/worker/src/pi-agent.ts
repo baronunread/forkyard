@@ -1,4 +1,3 @@
-import { AGENTS_MD_TEMPLATE } from "@forkyard/shared";
 import type { AssistantMessage, Credential, CredentialStore, TranscriptContext } from "@earendil-works/pi-ai";
 import { Type } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -163,7 +162,7 @@ export class PiAgent extends Agent<Env> {
       "You have no shell: use the tools to list, read and write files, then push. Writes are staged until you push.",
       "Plan before you edit: call plan with what you'll do, why, and the files you expect to touch. If another agent plans the same files, adjust. Keep the change focused, and push when it's done.",
       "Only call ask_human when you are truly blocked on something a person must decide; otherwise decide yourself.",
-      AGENTS_MD_TEMPLATE,
+      "Stay in scope: touch only what the task needs. Never write secrets, generated bundles or unrelated refactors.",
     ].join("\n\n");
   }
 

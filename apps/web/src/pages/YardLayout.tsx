@@ -132,12 +132,16 @@ export function YardLayout({ yard }: { yard: string }) {
         <Dialog className="space-y-4 p-6" size="base">
           <Dialog.Title className="text-h2">Connect an agent</Dialog.Title>
           <Dialog.Description className="text-sm text-body">
-            Add this MCP server to Claude Code, Codex or Cursor. Sign in, then pick a seat on one of {name}'s tasks, or let the agent act as you.
+            Your agents work with plain git. Once, make a token in Settings → Git access and clone {name} with it; git remembers it. Then open a task and use{" "}
+            <b>Add your agent</b>: it gives you one line to hand over.
           </Dialog.Description>
-          <ClipboardText text={`${location.origin}/mcp`} />
-          <p className="text-[13px] text-body">
-            Claude Code: <code className="font-mono text-fg">claude mcp add --transport http forkyard {location.origin}/mcp</code>
-          </p>
+          <ClipboardText text={`git clone ${location.origin}/git/${params.owner}/${params.yard}.git`} />
+          <details className="text-[13px] text-body">
+            <summary className="cursor-pointer">Prefer MCP tools?</summary>
+            <p className="mt-2">
+              Claude Code: <code className="font-mono text-fg">claude mcp add --transport http forkyard {location.origin}/mcp</code>
+            </p>
+          </details>
           <div className="flex justify-end">
             <Button onClick={() => setConnect(false)}>Done</Button>
           </div>

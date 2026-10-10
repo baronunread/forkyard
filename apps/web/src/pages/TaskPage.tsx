@@ -1,5 +1,5 @@
 import { Banner, Empty, Loader, Tabs } from "@cloudflare/kumo";
-import { ArrowLeft, GitMerge } from "@phosphor-icons/react";
+import { ArrowLeft, GitMerge, Plus } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useHotkeys, type UseHotkeyDefinition } from "@tanstack/react-hotkeys";
 import { useNavigate } from "@tanstack/react-router";
@@ -12,6 +12,7 @@ import { DecideView } from "../components/DecideView";
 import { PlansView } from "../components/PlansView";
 import { FileTreePane } from "../components/FileTreePane";
 import { AskCard } from "../components/AskCard";
+import { AddAgentDialog } from "../components/CreateDialogs";
 import { TaskStatusBadge } from "../components/Status";
 import { TaskState } from "../components/TaskState";
 import { Timeline } from "../components/Timeline";
@@ -38,6 +39,7 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
   const [split, setSplit] = usePersistent<boolean>("forkyard.split", true);
   const [wrap, setWrap] = usePersistent<boolean>("forkyard.wrap", false);
   const [now, setNow] = useState(Date.now());
+  const [adding, setAdding] = useState(false);
   const diffStyle = split ? "split" : "unified";
   // Before anyone pushes, the plans are the interesting part.
   const pushed = detail.data?.agents.some((a) => a.headCommit) ?? true;
@@ -120,6 +122,8 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
     );
 
   const open = d.task.status === "open";
+  // An own-agent seat nobody has pushed from yet is the natural one to hand over.
+  const freeSeat = agents.find((a) => a.harness !== "pi" && !a.headCommit)?.id ?? "claude";
   // The page's main action is the person's only when autopilot isn't deciding and nothing is asked below.
   const handsOn = open && d.autopilot !== "waiting" && d.asks.length === 0;
   return (
@@ -134,6 +138,11 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
             </div>
             {d.task.brief && <p className="mt-1 line-clamp-1 max-w-3xl text-body">{d.task.brief}</p>}
           </div>
+          {open && view !== "decide" && (
+            <Button icon={<Plus />} onClick={() => setAdding(true)}>
+              Add your agent
+            </Button>
+          )}
           {view === "decide" ? (
             <Button icon={<ArrowLeft />} onClick={() => setView("changes")}>
               Back
@@ -217,6 +226,7 @@ export function TaskPage({ yard, task, search }: { yard: string; task: string; s
           {view === "decide" && <DecideView yard={yard} task={task} detail={d} compare={compare.data ?? null} diffStyle={diffStyle} wrap={wrap} />}
         </div>
       </div>
+      {adding && <AddAgentDialog yard={yard} task={task} initialName={freeSeat} open setOpen={setAdding} />}
     </div>
   );
 }

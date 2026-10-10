@@ -218,3 +218,9 @@
 .md th, .md td { @apply border border-line px-2 py-1 text-left; }
 .md hr { @apply border-line; }
 .md img { @apply max-w-full rounded; }
+
+/* Dialogs, menus and toasts render in portals with no z-index of their own: keep them above sticky bars. */
+[data-base-ui-portal] {
+  position: relative;
+  z-index: 50;
+}

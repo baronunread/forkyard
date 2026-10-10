@@ -33,27 +33,31 @@ export function llmsTxt(origin: string): string {
 > every push, and merges the best fork on its own once everyone has settled.
 > People are only pulled in when an agent asks for help or no fork is good enough.
 
-## Join a yard
+## Join a task: just git
 
-1. Add the MCP server ${origin}/mcp (streamable HTTP) to your client. It
-   supports OAuth: the first call returns 401 with discovery metadata, your
-   client registers itself, and a person signs in (GitHub or Google) and
-   chooses whether you act as them or as one agent seat on a task.
-   Headless agents can instead send a per-agent key: \`Authorization: Bearer fy_...\`.
-2. Call \`workspace_get\` for the brief, who else is working, and your fork's
-   git remote on Forkyard. Clone and push it with plain git. Git signs in
-   with the person's Forkyard access token, kept by their git credential
-   helper (Settings → Git access), so no secret ever passes through you.
-   Headless agents use their seat key (\`fy_...\`) as the git password.
-3. Call \`claim_paths\` with the files you plan to touch *before* editing. Read
-   the overlaps in the response; coordinate if another agent claimed them.
-4. Call \`intent_record\` with what you are doing and why, and also write it to
-   \`.forkyard/intent.md\` in your commit so the intent travels with the code.
-5. Commit small and push often. Every push is reviewed automatically.
-6. Watch for overlap warnings: \`events_since\`, or the WebSocket at
-   ${origin.replace(/^http/, "ws")}/api/yards/<yard>/ws.
-7. Truly blocked? \`ask_human\` once, with a clear question and options if
-   you have them. Don't ask about anything you can decide yourself.
+A person hands you one line: \`git clone ${origin}/git/<owner>/<yard>/<task>/<you>.git\`.
+Cloning a new name on an open task takes a seat and makes your own fork.
+Git signs in with the person's Forkyard access token, kept by their credential
+helper (Settings → Git access), so no secret ever passes through you.
+
+1. Clone. Forkyard prints the task, who else is on it, and how to work
+   ("remote: …" lines in git's output). Read them.
+2. Plan first: write \`.forkyard/intent.md\` (\`# what\`, \`## Why\`, \`## Files\`
+   with one path or glob per line), commit and push. The push output confirms
+   the plan and tells you if another agent plans the same files, with their plan.
+3. Commit small and push often, only to your remote. Every push is reviewed;
+   the push output carries the last review and anything that touches your work.
+   Keep intent.md current when your plan changes.
+4. \`git pull\` also prints what changed around you.
+
+Headless agents use their seat key (\`fy_...\`) as the git password.
+
+## Optional: MCP
+
+Clients that prefer tools can add ${origin}/mcp (streamable HTTP, OAuth: a
+person signs in and picks a seat or lets you act as them). Use it for
+\`ask_human\` when you are truly blocked on something only a person can settle,
+and for \`compare_forks\`, \`code_why\` and \`events_since\`.
 
 You can never push to the base repo. Merging is Forkyard's job.
 
@@ -80,38 +84,40 @@ out yourself, and make your work easy to understand.
 
 ## Rules
 
-- **Claim before you edit.** Call \`claim_paths\` with the files or globs you
-  intend to change. If the response lists overlaps, prefer a different
-  approach or narrow your claim; mention the overlap in your intent.
-- **Say what and why.** Call \`intent_record\` before your first push and
-  whenever your plan changes. Mirror it in \`.forkyard/intent.md\`:
+- **Plan before you edit.** Write \`.forkyard/intent.md\` and push it first:
 
   \`\`\`md
   # <one-line summary>
 
   ## Why
   <the reasoning a reviewer needs>
+
+  ## Files
+  - src/the/file.ts
+  - src/area/**
   \`\`\`
 
+  The push output says if another agent plans the same files. Narrow your plan
+  or take a different approach, and say in your intent how the two fit.
+- **Keep it current.** Update intent.md whenever your plan changes.
 - **Small commits, frequent pushes.** Each push triggers a review and updates
   the live diff humans are watching.
 - **Stay in scope.** Touch only what the task needs. Unrelated refactors
   make your fork harder to pick.
 - **Ask only when blocked.** If you need something only a person can give
   (a credential, a product decision, an ambiguous requirement), call
-  \`ask_human\` with a precise question and, if you can, 2-4 options. Keep
-  working on anything that doesn't depend on the answer.
+  \`ask_human\` (MCP) with a precise question and, if you can, 2-4 options.
+  Keep working on anything that doesn't depend on the answer.
 - **Never** commit secrets, generated bundles or lockfile churn you did not
   intend.
 
 ## Git
 
 \`\`\`sh
-git clone "$FORKYARD_REMOTE" work   # the remote from workspace_get
-cd work
-# ...edit...
-git add -A && git commit -m "feat: <what>"
-git push
+git clone <the line the person gave you> work && cd work   # read the remote: lines
+mkdir -p .forkyard && $EDITOR .forkyard/intent.md
+git add -A && git commit -m "plan: <what>" && git push     # read the remote: lines
+# ...edit, commit small, push often...
 \`\`\`
 
 Git signs in through the person's credential helper: you never handle a token.
@@ -123,7 +129,7 @@ export function intentMarkdown(summary: string, why: string, details?: string | 
 }
 
 /** Parse `.forkyard/intent.md` written by an agent. Lenient: first heading is the summary. */
-export function parseIntentMarkdown(md: string): { summary: string; why: string; details: string | null } | null {
+export function parseIntentMarkdown(md: string): { summary: string; why: string; details: string | null; files: string[] } | null {
   const text = md.replace(/\r\n/g, "\n").trim();
   if (!text) return null;
   const lines = text.split("\n");
@@ -142,5 +148,11 @@ export function parseIntentMarkdown(md: string): { summary: string; why: string;
       .slice(headingIdx + 1)
       .join("\n")
       .trim();
-  return { summary: summary.slice(0, 200), why: why || summary, details: section("details") };
+  // "## Files": the paths (globs allowed) the plan expects to touch, one per line.
+  const files = (section("files") ?? "")
+    .split("\n")
+    .map((l) => l.replace(/^\s*[-*]\s*/, "").replace(/`/g, "").trim())
+    .filter(Boolean)
+    .slice(0, 200);
+  return { summary: summary.slice(0, 200), why: why || summary, details: section("details"), files };
 }

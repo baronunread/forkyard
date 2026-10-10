@@ -30,8 +30,8 @@ export function advertise(service: "git-upload-pack" | "git-receive-pack", store
   const head = store.head();
   const caps =
     service === "git-upload-pack"
-      ? `ofs-delta symref=HEAD:${head} ${AGENT}`
-      : `report-status delete-refs ofs-delta ${AGENT}`;
+      ? `ofs-delta side-band-64k symref=HEAD:${head} ${AGENT}`
+      : `report-status delete-refs ofs-delta side-band-64k ${AGENT}`;
   const lines: Uint8Array[] = [pkt(`# service=${service}\n`), FLUSH];
   const entries: [string, string][] = [];
   const headHash = refs.get(head);
@@ -50,6 +50,7 @@ export function uploadPack(body: Uint8Array, store: GitStore): Uint8Array {
   const wants: string[] = [];
   const haves: string[] = [];
   let done = false;
+  let banded = false;
   let offset = 0;
   while (offset < body.length) {
     const { items, offset: next } = readPkts(body, offset, 1);
@@ -58,7 +59,10 @@ export function uploadPack(body: Uint8Array, store: GitStore): Uint8Array {
     for (const item of items) {
       const line = pktText(item);
       if (!line) continue;
-      if (line.startsWith("want ")) wants.push(line.slice(5, 45));
+      if (line.startsWith("want ")) {
+        wants.push(line.slice(5, 45));
+        if (line.includes("side-band-64k")) banded = true;
+      }
       else if (line.startsWith("have ")) haves.push(line.slice(5, 45));
       else if (line === "done") done = true;
     }
@@ -76,7 +80,7 @@ export function uploadPack(body: Uint8Array, store: GitStore): Uint8Array {
     if (o) objects.push(o);
   }
   const ack = common[0] ? pkt(`ACK ${common[0]}\n`) : pkt("NAK\n");
-  return concat([ack, writePack(objects)]);
+  return concat([ack, banded ? concat([band(1, writePack(objects)), FLUSH]) : writePack(objects)]);
 }
 
 /** All objects reachable from `roots`, skipping anything in `stop`. */
@@ -102,10 +106,12 @@ export function closure(roots: string[], store: GitStore, stop: Set<string> = ne
 export function receivePack(body: Uint8Array, store: GitStore): { response: Uint8Array; updates: RefUpdate[] } {
   const { items, offset } = readPkts(body, 0, 1);
   const commands: RefUpdate[] = [];
+  let banded = false;
   for (const item of items) {
     const line = pktText(item);
     if (!line) continue;
-    const [cmd] = line.split("\0");
+    const [cmd, caps] = line.split("\0");
+    if (caps?.includes("side-band-64k")) banded = true;
     const [oldHash, newHash, ref] = cmd!.split(" ");
     if (oldHash && newHash && ref) commands.push({ old: oldHash, new: newHash, ref });
   }
@@ -146,7 +152,15 @@ export function receivePack(body: Uint8Array, store: GitStore): { response: Uint
     for (const c of commands) lines.push(pkt(`ng ${c.ref} unpacker error\n`));
   }
   lines.push(FLUSH);
-  return { response: concat(lines), updates: applied };
+  const status = concat(lines);
+  return { response: banded ? concat([band(1, status), FLUSH]) : status, updates: applied };
+}
+
+/** Side-band-64k: `data` split into band `n` pkt-lines (1 = data, 2 = progress shown as "remote:"). */
+export function band(n: 1 | 2, data: Uint8Array): Uint8Array {
+  const out: Uint8Array[] = [];
+  for (let i = 0; i < data.length; i += 65515) out.push(pkt(concat([Uint8Array.of(n), data.subarray(i, i + 65515)])));
+  return concat(out);
 }
 
 export function serviceContentType(service: string, kind: "advertisement" | "result"): string {

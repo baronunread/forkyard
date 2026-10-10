@@ -99,6 +99,14 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewParams | Artif
       }
     });
 
+    if (!files.length) {
+      await step.do("nothing to review yet", async () => {
+        await yardStub(this.env, { id: p.yardId, jurisdiction: p.jurisdiction }).nothingToReview(p.taskId, p.agentId, p.commit);
+        return true;
+      });
+      return { skipped: "no code changes yet" };
+    }
+
     await step.do("publish footprint", async () => {
       await yardStub(this.env, { id: p.yardId, jurisdiction: p.jurisdiction }).onDiff(p.taskId, p.agentId, p.commit, files);
       return true;

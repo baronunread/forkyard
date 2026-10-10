@@ -17,7 +17,11 @@ describe("naming", () => {
 describe("intent markdown", () => {
   it("round-trips", () => {
     const md = intentMarkdown("Add dark mode", "Users asked for it", "Uses CSS vars");
-    expect(parseIntentMarkdown(md)).toEqual({ summary: "Add dark mode", why: "Users asked for it", details: "Uses CSS vars" });
+    expect(parseIntentMarkdown(md)).toEqual({ summary: "Add dark mode", why: "Users asked for it", details: "Uses CSS vars", files: [] });
+  });
+  it("reads the files a plan expects to touch", () => {
+    const md = "# Sessions in D1\n\n## Why\n\nKV is eventually consistent\n\n## Files\n\n- `src/auth.ts`\n* src/db/**\n";
+    expect(parseIntentMarkdown(md)?.files).toEqual(["src/auth.ts", "src/db/**"]);
   });
 });
 

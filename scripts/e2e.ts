@@ -167,6 +167,27 @@ async function chatgptChecks(browser: Browser) {
   const basic = (secret: string) => ["-c", `http.extraHeader=Authorization: Basic ${btoa(`baron:${secret}`)}`, "-c", "credential.helper=", "-c", "core.askPass=true"];
   const lsRemote = (secret: string) => run("git", [...basic(secret), "ls-remote", seatWs.git.remote]).then(() => "ok", (e) => String(e));
   check(minted.token.startsWith("fyp_") && (await lsRemote(minted.token)) === "ok", "a person's access token opens their seat's fork over git");
+  // Git is the whole interface: cloning a new name takes a seat, and Forkyard talks back in git's output.
+  const seatGit = async (name: string, files: string) => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${y}-${gitTask.task.id}-${name}`;
+    const g = (...a: string[]) => run("git", [...basic(minted.token), "-C", dir, "-c", `user.name=${name}`, "-c", "user.email=a@e", ...a]);
+    const cloned = await run("git", [...basic(minted.token), "clone", seatWs.git.remote.replace(/kai\.git$/, `${name}.git`), dir]);
+    await run("mkdir", ["-p", `${dir}/.forkyard`]);
+    await writeFile(`${dir}/.forkyard/intent.md`, `# ${name} rewrites the readme\n\n## Why\n\nIt is thin.\n\n## Files\n\n- ${files}\n`);
+    await g("add", "-A");
+    await g("commit", "-qm", "plan");
+    const pushed = await g("push", "-q", "origin", "HEAD");
+    return { clone: cloned.stderr, push: pushed.stderr };
+  };
+  const claude = await seatGit("claude", "README.md");
+  check(claude.clone.includes("remote: Forkyard · Git access") && claude.clone.includes("You are Claude"), "cloning a new name takes a seat and git prints the task");
+  check(claude.push.includes("Plan recorded: “claude rewrites the readme”"), "a pushed .forkyard/intent.md is the plan, confirmed in the push output");
+  const codex = await seatGit("codex", "README.md");
+  check(/Heads up: Claude also plans to change README\.md/.test(codex.push), `a second agent planning the same file hears about it in its push output`);
+  await sleep(4000);
+  const planOnly = (await (await browser(`/api/yards/${y}/tasks/${gitTask.task.id}`)).json()) as { agents: { id: string; status: string; review: unknown }[] };
+  const cl = planOnly.agents.find((a) => a.id === "claude");
+  check(cl?.status === "working" && !cl.review, `a push with only the plan isn't reviewed; the agent is still working (${cl?.status})`);
   const listed = (await (await browser("/api/account/tokens")).json()) as { tokens: { id: string; lastUsedAt: string | null }[] };
   check(!!listed.tokens.find((t) => t.id === minted.id)?.lastUsedAt && !JSON.stringify(listed).includes(minted.token), "tokens are listed without their secret, with when they were last used");
   await browser(`/api/account/tokens/${minted.id}`, { method: "DELETE" });
