@@ -216,7 +216,7 @@ async function rerunChecks(browser: Browser, y: string) {
 
 /** Cloud agents (Pi Durable in a Durable Object) work next to local MCP seats on the same task. */
 async function cloudAgentChecks() {
-  const t = await api<{ task: { id: string }; agents: { id: string; harness: string }[] }>(`/yards/${yardId}/tasks`, {
+  const t = await api<{ task: { id: string }; agents: { id: string; harness: string }[]; credentials: { agentId: string; apiKey: string }[] }>(`/yards/${yardId}/tasks`, {
     body: { title: "Cloud and local", autopilot: false, agents: [{ name: "Nimbus", runner: "cloud" }, { name: "Laptop", harness: "claude-code" }] },
   });
   check(t.agents.find((a) => a.id === "nimbus")?.harness === "pi" && t.agents.find((a) => a.id === "laptop")?.harness === "claude-code", "a task mixes a cloud agent and a local MCP seat");
@@ -231,6 +231,23 @@ async function cloudAgentChecks() {
   check(!!nimbus?.headCommit && !!nimbus.intent && nimbus.status === "reviewed", "the cloud agent claimed, recorded intent, pushed, and was reviewed");
   const log = await api<{ cloud: boolean; entries: { kind: string; text: string }[] }>(`${path}/agents/nimbus/transcript`);
   check(log.cloud && log.entries.some((e) => e.text.includes("push(")), `its Pi transcript is readable (${log.entries.length} entries)`);
+
+  // The local seat works through Forkyard too: read and push over MCP, no git credentials.
+  const laptop = new Mcp(t.credentials.find((c) => c.agentId === "laptop")!.apiKey);
+  const listed = await laptop.call<{ files: string[] }>("list_files");
+  const pushed = await laptop.call<{ commit: string }>("push_files", { message: "docs: from the laptop", files: [{ path: "notes/laptop.md", content: "hi from MCP\n" }] });
+  const back = await laptop.call<{ files: { path: string; content: string | null }[] }>("read_files", { paths: ["notes/laptop.md"] });
+  check(listed.data.files.includes("README.md") && back.data.files[0]?.content === "hi from MCP\n", `a local seat pushes and reads its fork over MCP (${pushed.data.commit.slice(0, 7)})`);
+  let laptopReviewed = false;
+  for (let i = 0; i < 60 && !laptopReviewed; i++) {
+    const d = await api<{ agents: { id: string; status: string; headCommit: string | null }[] }>(path);
+    const a = d.agents.find((x) => x.id === "laptop");
+    laptopReviewed = a?.status === "reviewed" && a.headCommit === pushed.data.commit;
+    if (!laptopReviewed) await sleep(1000);
+  }
+  check(laptopReviewed, "that push is reviewed like any other");
+  const badPath = await laptop.call("push_files", { message: "x", files: [{ path: "../escape.md", content: "x" }] }).then(() => "accepted", (e) => String(e));
+  check(badPath !== "accepted", "a path that climbs out of the repo is refused");
   await api(`${path}/abandon`, { body: { reason: "e2e done" } });
 }
 

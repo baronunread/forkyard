@@ -12,6 +12,9 @@ import {
   Slug,
   DecideInput,
   IntentInput,
+  ListFilesInput,
+  PushFilesInput,
+  ReadFilesInput,
   type Workspace,
 } from "@forkyard/shared";
 import { Hono } from "hono";
@@ -278,6 +281,18 @@ export const api = new Hono<HonoEnv>()
   .post("/yards/:yard/tasks/:task/agents/:agent/intents", zValidator("param", agentParam), zValidator("json", IntentInput), async (c) => {
     const { yard, task, agent } = c.req.valid("param");
     return c.json(await svc.intentRecord(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }), 201);
+  })
+  .get("/yards/:yard/tasks/:task/agents/:agent/files", zValidator("param", agentParam), zValidator("query", ListFilesInput), async (c) => {
+    const { yard, task, agent } = c.req.valid("param");
+    return c.json(await svc.forkList(c.env, c.get("principal"), yard, task, { ...c.req.valid("query"), agentId: agent }));
+  })
+  .post("/yards/:yard/tasks/:task/agents/:agent/files/read", zValidator("param", agentParam), zValidator("json", ReadFilesInput), async (c) => {
+    const { yard, task, agent } = c.req.valid("param");
+    return c.json(await svc.forkRead(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }));
+  })
+  .post("/yards/:yard/tasks/:task/agents/:agent/push", zValidator("param", agentParam), zValidator("json", PushFilesInput), async (c) => {
+    const { yard, task, agent } = c.req.valid("param");
+    return c.json(await svc.forkPush(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }), 201);
   })
   .post("/yards/:yard/tasks/:task/agents/:agent/asks", zValidator("param", agentParam), zValidator("json", AskInput), async (c) => {
     const { yard, task, agent } = c.req.valid("param");

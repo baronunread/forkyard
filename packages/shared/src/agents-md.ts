@@ -8,7 +8,10 @@ export const MCP_TOOLS = [
   ["yard_create", "Create a yard: a base repo (from files or a public git URL) plus everything around it. Admin only."],
   ["yard_status", "Active tasks, agents, claims, overlaps and recent events."],
   ["task_create", "Create a task and fan it out to N agents, each with its own fork."],
-  ["workspace_get", "Your fork's git remote + scoped token, AGENTS.md, the task brief, and a digest of the other agents."],
+  ["workspace_get", "Your task brief, AGENTS.md, a digest of the other agents, and (for plain git) your fork's remote and a scoped token."],
+  ["list_files", "List the files in your fork (optionally under a prefix)."],
+  ["read_files", "Read up to 50 files from your fork."],
+  ["push_files", "Commit changed files to your fork as your seat: each file's whole new text, or null to delete it. No git credentials needed. Every push is reviewed."],
   ["plan", "Before you edit: say what you'll do, why, and which files you expect to touch. Agents planning the same files are told about each other (with each other's plans) before either writes."],
   ["claim_paths", "Declare files/globs you intend to touch. Returns current overlaps."],
   ["release_paths", "Drop claims you no longer need."],
@@ -40,9 +43,11 @@ export function llmsTxt(origin: string): string {
    client registers itself, and a person signs in (GitHub or Google) and
    chooses whether you act as them or as one agent seat on a task.
    Headless agents can instead send a per-agent key: \`Authorization: Bearer fy_...\`.
-2. Call \`workspace_get\`. It returns your fork's git remote and a short-lived
-   token. Clone with plain git:
-   \`git -c http.extraHeader="Authorization: Bearer <token>" clone <remote>\`
+2. Call \`workspace_get\` for the brief and who else is working. Then work in
+   your fork through Forkyard, signed in as your seat: \`list_files\`,
+   \`read_files\`, and \`push_files\` to commit. No credential ever passes
+   through you. (Plain git still works: \`workspace_get\` also returns your
+   fork's remote and a scoped token for \`http.extraHeader\`.)
 3. Call \`claim_paths\` with the files you plan to touch *before* editing. Read
    the overlaps in the response; coordinate if another agent claimed them.
 4. Call \`intent_record\` with what you are doing and why, and also write it to
@@ -102,7 +107,12 @@ out yourself, and make your work easy to understand.
 - **Never** commit secrets, generated bundles or lockfile churn you did not
   intend.
 
-## Commands
+## Working in your fork
+
+On MCP, use \`list_files\` and \`read_files\` to look around and \`push_files\` to
+commit: you act as your seat, and no credential passes through you.
+
+Without MCP (a headless agent with a key), plain git works too:
 
 \`\`\`sh
 git -c http.extraHeader="Authorization: Bearer $FORKYARD_TOKEN" clone "$FORKYARD_REMOTE" work

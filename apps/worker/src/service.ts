@@ -17,6 +17,7 @@ import {
   type ForkDiff,
   type IntentInput,
   type PlanInput,
+  type PushFilesInput,
   type Overlap,
   type Review,
   type Intent,
@@ -26,7 +27,7 @@ import {
   yardSlug,
 } from "@forkyard/shared";
 import { handleOf } from "./better-auth";
-import { disposeRepo, errorCode, getArtifacts } from "./artifacts";
+import { disposeRepo, errorCode, getArtifacts, treeReader } from "./artifacts";
 import { actingAgent, assertAdmin, assertCanDecide, assertMemberOrAdmin, assertPerson, assertTask, assertYard, AuthError, devMode, isMember, type Principal } from "./auth";
 import {
   getAgent,
@@ -47,7 +48,7 @@ import {
 } from "./db";
 import { ChatGPTError, status as chatgptStatus } from "./chatgpt";
 import { applyDecision, DecideError, previewDecision } from "./decide";
-import { computeHunks, forkDiff, mapLimit, readPathAt } from "./diff";
+import { commitTree, computeHunks, forkDiff, mapLimit, readPathAt, treeChanges } from "./diff";
 import type { Env } from "./env";
 import { buildCommit, textFile } from "./git/build";
 import { deletePreviewBranch, previewBranchSlug } from "./preview";
@@ -447,6 +448,71 @@ export async function eventsSince(
   // Agents only see their own task (and yard-level events).
   const f = p.kind === "agent" ? { ...filter, taskId: p.taskId } : filter;
   return yardStub(env, yard).eventsSince(since, limit, f);
+}
+
+// ── a seat's fork, without git ───────────────────────────────────────────────
+// Agents read and push through Forkyard as their signed-in seat: no token to hand to git.
+// ponytail: text files only; a binary or a mode change still goes through git.
+
+async function seatFork(env: Env, p: Principal, yardId: string, taskId: string, agentId?: string) {
+  const id = await actingAgent(env, p, yardId, taskId, agentId);
+  const yard = await mustYard(env, yardId);
+  const agent = await getAgent(env.DB, yardId, taskId, id);
+  if (!agent) throw new ServiceError(404, `agent ${id} not found`);
+  if (agent.status === "forking") throw new ServiceError(409, "your fork is still being made; try again in a few seconds");
+  const artifacts = getArtifacts(env, yard.jurisdiction);
+  const repo = await artifacts.get(agent.forkName);
+  const [head] = await repo.log({ ref: yard.defaultBranch, limit: 1 });
+  if (!head) {
+    disposeRepo(repo);
+    throw new ServiceError(409, "your fork has no commits");
+  }
+  return { yard, agent, artifacts, repo, head };
+}
+
+export async function forkList(env: Env, p: Principal, yardId: string, taskId: string, input: { prefix?: string; agentId?: string }) {
+  const { repo, head } = await seatFork(env, p, yardId, taskId, input.agentId);
+  try {
+    const files = (await treeChanges(repo, null, await commitTree(repo, head.hash))).map((c) => c.path).filter((f) => !input.prefix || f.startsWith(input.prefix));
+    return { commit: head.hash, files: files.sort() };
+  } finally {
+    disposeRepo(repo);
+  }
+}
+
+export async function forkRead(env: Env, p: Principal, yardId: string, taskId: string, input: { paths: string[]; agentId?: string }) {
+  const { repo, head } = await seatFork(env, p, yardId, taskId, input.agentId);
+  try {
+    const files = await Promise.all(
+      input.paths.map(async (path) => {
+        const f = await readPathAt(repo, head.hash, path);
+        return { path, exists: f.exists, binary: f.binary, content: f.exists && !f.binary ? (f.text ?? "") : null };
+      }),
+    );
+    return { commit: head.hash, files };
+  } finally {
+    disposeRepo(repo);
+  }
+}
+
+export async function forkPush(env: Env, p: Principal, yardId: string, taskId: string, input: PushFilesInput & { agentId?: string }) {
+  const task = await mustTask(env, yardId, taskId);
+  if (task.status !== "open") throw new ServiceError(409, `task is ${task.status}`);
+  const { yard, agent, artifacts, repo, head } = await seatFork(env, p, yardId, taskId, input.agentId);
+  try {
+    const built = await buildCommit({
+      reader: treeReader(repo),
+      baseTree: head.treeHash,
+      parents: [head.hash],
+      changes: new Map(input.files.map((f) => [f.path, f.content === null ? null : { contents: new TextEncoder().encode(f.content) }])),
+      message: input.message,
+      author: { name: agent.name, email: `${agent.id}@agents.forkyard.dev` },
+    });
+    await artifacts.writeCommit(agent.forkName, built, `refs/heads/${yard.defaultBranch}`, head.hash);
+    return { commit: built.commit, parent: head.hash, files: input.files.length };
+  } finally {
+    disposeRepo(repo);
+  }
 }
 
 // ── diffs and comparison ───────────────────────────────────────────────────
