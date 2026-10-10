@@ -184,7 +184,7 @@ async function main() {
             task?: { id: string };
             agentId?: string;
             apiKey?: string;
-            workspace?: { agent: { name: string; status: string }; git: { remote: string; token: string }; task: { baseCommit: string } };
+            workspace?: { agent: { name: string; status: string }; git: { remote: string }; task: { baseCommit: string } };
             error?: string;
           };
           if (msg.kind === "task") taskId = msg.task!.id;
@@ -197,7 +197,7 @@ async function main() {
               name: msg.workspace.agent.name,
               key: msg.apiKey!,
               remote: msg.workspace.git.remote,
-              token: msg.workspace.git.token,
+              token: msg.apiKey!,
               head: msg.workspace.task.baseCommit,
               commits: [],
               files: new Map(Object.entries(base)),

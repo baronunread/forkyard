@@ -37,8 +37,8 @@ async function agentWork(t: Created, i: number, paths: string[], intent: string,
   const a = t.agents[i]!;
   const key = t.credentials.find((c) => c.agentId === a.id)!.apiKey;
   const mcp = new Mcp(key);
-  const ws = await mcp.call<{ git: { remote: string; token: string } }>("workspace_get");
-  const git = await Git.clone(ws.data.git.remote, join(work, t.task.id, a.id), ws.data.git.token, { name: a.name, email: `${a.id}@agents.forkyard.dev` });
+  const ws = await mcp.call<{ git: { remote: string } }>("workspace_get");
+  const git = await Git.clone(ws.data.git.remote, join(work, t.task.id, a.id), key, { name: a.name, email: `${a.id}@agents.forkyard.dev` });
   await mcp.call("claim_paths", { paths });
   await mcp.call("intent_record", { summary: intent, why: `${intent}, as the task asks.` });
   for (const [p, c] of Object.entries(files)) await git.write(p, c);

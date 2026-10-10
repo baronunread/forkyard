@@ -1,9 +1,12 @@
-import { Banner } from "@cloudflare/kumo";
-import { useQuery } from "@tanstack/react-query";
+import { Banner, ClipboardText } from "@cloudflare/kumo";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ChatGPTDialog } from "../components/ChatGPTDialog";
 import { Button, Card, cx, SectionTitle } from "../components/ui";
 import { call, client } from "../lib/api";
+import { ago } from "../lib/format";
+import { yardsQuery } from "../lib/queries";
+import { toastError } from "../lib/toast";
 import { useMe } from "../lib/session";
 
 /** Your account: who you are, your model subscription, and the hard limits this deployment enforces. */
@@ -24,6 +27,8 @@ export function SettingsPage() {
           </div>
           <Button onClick={() => setChatgpt(true)}>ChatGPT for agents and reviews…</Button>
         </Card>
+
+        <GitAccess />
 
         <section className="space-y-3">
           <div>
@@ -64,5 +69,70 @@ function LimitRow({ label, scope, limit, used, hint }: { label: string; scope: s
       )}
       <p className="text-xs text-body">{hint}</p>
     </div>
+  );
+}
+
+/**
+ * Access tokens: git's password for Forkyard's git address. Your keychain keeps it after the
+ * first clone, so your agents run plain git and never see a secret.
+ */
+function GitAccess() {
+  const qc = useQueryClient();
+  const key = ["account", "tokens"];
+  const tokens = useQuery({ queryKey: key, queryFn: () => call(client.account.tokens.$get()) });
+  const yard = useQuery(yardsQuery).data?.[0];
+  const [made, setMade] = useState<string | null>(null);
+  const create = useMutation({
+    mutationFn: () => call(client.account.tokens.$post({ json: { name: "This computer" } })),
+    onSuccess: (r) => {
+      setMade(r.token);
+      void qc.invalidateQueries({ queryKey: key });
+    },
+    onError: (e) => toastError(e, "Couldn't make a token"),
+  });
+  const revoke = useMutation({
+    mutationFn: (id: string) => call(client.account.tokens[":id"].$delete({ param: { id } })),
+    onSuccess: (r) => qc.setQueryData(key, r),
+    onError: (e) => toastError(e, "Couldn't revoke it"),
+  });
+  const clone = `git clone ${location.origin}/git/${yard ? `${yard.owner}/${yard.slug}` : "<owner>/<yard>"}.git`;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <SectionTitle>Git access</SectionTitle>
+          <p className="mt-1 text-sm text-body">Your agents push with plain git to Forkyard. Git signs in with a token your keychain keeps, so agents never see it.</p>
+        </div>
+        <Button size="sm" loading={create.isPending} onClick={() => create.mutate()}>
+          New token
+        </Button>
+      </div>
+      {made && (
+        <Card className="space-y-3 p-4">
+          <p className="text-sm text-fg">Copy it now: it won't be shown again.</p>
+          <ClipboardText text={made} />
+          <p className="text-sm text-body">Once per computer, in your own terminal: clone a yard, and paste the token when git asks for a password (any username).</p>
+          <ClipboardText text={clone} />
+        </Card>
+      )}
+      {(tokens.data?.tokens.length ?? 0) > 0 && (
+        <Card className="divide-y divide-line">
+          {tokens.data!.tokens.map((t) => (
+            <div key={t.id} className="flex items-center justify-between gap-3 p-4">
+              <div className="min-w-0 text-sm">
+                <span className="font-medium text-fg">{t.name}</span>
+                <span className="ml-2 text-body">
+                  made {ago(t.createdAt)} · {t.lastUsedAt ? `used ${ago(t.lastUsedAt)}` : "never used"}
+                </span>
+              </div>
+              <Button size="sm" variant="ghost" loading={revoke.isPending && revoke.variables === t.id} onClick={() => revoke.mutate(t.id)}>
+                Revoke
+              </Button>
+            </div>
+          ))}
+        </Card>
+      )}
+    </section>
   );
 }

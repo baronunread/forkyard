@@ -286,10 +286,9 @@ export const Workspace = z.object({
   agent: Agent,
   task: Task,
   yard: Yard,
+  /** Your fork on Forkyard's git address. Git signs in with your Forkyard access token (or this seat's key). */
   git: z.object({
     remote: z.string(),
-    token: z.string(),
-    tokenExpiresAt: z.string().nullable(),
     branch: z.string(),
     cloneCommand: z.string(),
   }),
@@ -384,26 +383,6 @@ export const IntentInput = z.object({
 });
 export type IntentInput = z.infer<typeof IntentInput>;
 
-/** A path in a repo: relative, no empty or `..` segments, not a folder. */
-export const RepoPath = z
-  .string()
-  .min(1)
-  .max(300)
-  .refine((p) => p.split("/").every((s) => s !== "" && s !== "." && s !== ".."), "a relative file path, like src/app.ts");
-
-/** Reading and writing your fork through Forkyard, with no git credentials to carry. */
-export const ListFilesInput = z.object({ prefix: z.string().max(300).optional() });
-export const ReadFilesInput = z.object({ paths: z.array(RepoPath).min(1).max(50) });
-export const PushFilesInput = z.object({
-  message: z.string().trim().min(1).max(2000),
-  /** Each file's whole new text; `null` deletes it. */
-  files: z
-    .array(z.object({ path: RepoPath, content: z.string().nullable() }))
-    .min(1)
-    .max(500)
-    .refine((fs) => fs.reduce((n, f) => n + (f.content?.length ?? 0), 0) <= 10_000_000, "at most 10 MB of text per push"),
-});
-export type PushFilesInput = z.infer<typeof PushFilesInput>;
 
 /** A plan before code: what and why, plus the files the agent expects to touch. */
 export const PlanInput = IntentInput.extend({

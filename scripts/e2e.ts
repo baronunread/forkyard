@@ -55,8 +55,8 @@ async function autopilotChecks() {
   check(inbox.asks.some((a) => a.id === asked.data.id && a.agentName === "Ann"), "a blocked agent's question lands in the inbox");
 
   for (const [key, name] of [[ann, "Ann"], [bo, "Bo"]] as const) {
-    const ws = await new Mcp(key).call<{ git: { remote: string; token: string } }>("workspace_get");
-    const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${yardId}-${name}`, ws.data.git.token, { name, email: `${name}@e` });
+    const ws = await new Mcp(key).call<{ git: { remote: string } }>("workspace_get");
+    const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${yardId}-${name}`, key, { name, email: `${name}@e` });
     await g.write(`notes/${name.toLowerCase()}.md`, `# ${name}\n\nSessions live in D1.\n`);
     await g.commitAndPush(`docs: ${name}'s notes`);
   }
@@ -142,8 +142,8 @@ async function chatgptChecks(browser: Browser) {
       task: { id: string };
       credentials: { apiKey: string }[];
     };
-    const ws = await new Mcp(t.credentials[0]!.apiKey).call<{ git: { remote: string; token: string } }>("workspace_get");
-    const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${y}-${t.task.id}`, ws.data.git.token, { name: "Kai", email: "kai@e" });
+    const ws = await new Mcp(t.credentials[0]!.apiKey).call<{ git: { remote: string } }>("workspace_get");
+    const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${y}-${t.task.id}`, t.credentials[0]!.apiKey, { name: "Kai", email: "kai@e" });
     await g.write("hello.md", "hello\n");
     await g.commitAndPush("docs: hello");
     for (let i = 0; i < 60; i++) {
@@ -160,6 +160,18 @@ async function chatgptChecks(browser: Browser) {
   const bad = await browser("/api/account/models/chatgpt", { method: "PUT", json: { reviewModel: "no-such-model" } });
   check(bad.status === 400, `the reviewer must be a model the plan offers (→ ${bad.status})`);
 
+  // A person's access token is git's password for any seat in their yards; revoked, it stops working.
+  const gitTask = (await (await browser(`/api/yards/${y}/tasks`, { json: { title: "Git access", autopilot: false, agents: [{ name: "Kai", harness: "test" }] } })).json()) as { task: { id: string } };
+  const seatWs = (await (await browser(`/api/yards/${y}/tasks/${gitTask.task.id}/agents/kai/workspace`)).json()) as { git: { remote: string } };
+  const minted = (await (await browser("/api/account/tokens", { json: { name: "laptop" } })).json()) as { id: string; token: string };
+  const basic = (secret: string) => ["-c", `http.extraHeader=Authorization: Basic ${btoa(`baron:${secret}`)}`, "-c", "credential.helper=", "-c", "core.askPass=true"];
+  const lsRemote = (secret: string) => run("git", [...basic(secret), "ls-remote", seatWs.git.remote]).then(() => "ok", (e) => String(e));
+  check(minted.token.startsWith("fyp_") && (await lsRemote(minted.token)) === "ok", "a person's access token opens their seat's fork over git");
+  const listed = (await (await browser("/api/account/tokens")).json()) as { tokens: { id: string; lastUsedAt: string | null }[] };
+  check(!!listed.tokens.find((t) => t.id === minted.id)?.lastUsedAt && !JSON.stringify(listed).includes(minted.token), "tokens are listed without their secret, with when they were last used");
+  await browser(`/api/account/tokens/${minted.id}`, { method: "DELETE" });
+  check((await lsRemote(minted.token)) !== "ok", "a revoked token is turned away");
+
   const off = (await (await browser("/api/account/models/chatgpt", { method: "PUT", json: { useForReviews: false } })).json()) as { useForReviews: boolean };
   const gone = (await (await browser("/api/account/models/chatgpt", { method: "DELETE" })).json()) as { connected: boolean };
   check(!off.useForReviews && !gone.connected, "ChatGPT reviews can be turned off and disconnected");
@@ -173,9 +185,9 @@ async function rerunChecks(browser: Browser, y: string) {
     (await (await browser(`/api/yards/${y}/tasks`, { json: { title, autopilot, agents: [{ name, harness: "test" }] } })).json()) as Made;
   const get = async (id: string) => (await (await browser(`/api/yards/${y}/tasks/${id}`)).json()) as TaskDetail & { agents: { headCommit: string | null }[] };
   const push = async (m: Made, name: string, text: string, extra?: (g: Git) => Promise<void>) => {
-    const ws = await new Mcp(m.credentials[0]!.apiKey).call<{ git: { remote: string; token: string } }>("workspace_get");
+    const ws = await new Mcp(m.credentials[0]!.apiKey).call<{ git: { remote: string } }>("workspace_get");
     await new Mcp(m.credentials[0]!.apiKey).call("intent_record", { summary: `Greet in ${name}'s words`, why: "The greeting should be friendly." });
-    const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${y}-${name}`, ws.data.git.token, { name, email: `${name}@e` });
+    const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${y}-${name}`, m.credentials[0]!.apiKey, { name, email: `${name}@e` });
     await g.write("greeting.md", `# Greeting\n\n${text}\n`);
     await extra?.(g);
     await g.commitAndPush("docs: greeting");
@@ -232,22 +244,6 @@ async function cloudAgentChecks() {
   const log = await api<{ cloud: boolean; entries: { kind: string; text: string }[] }>(`${path}/agents/nimbus/transcript`);
   check(log.cloud && log.entries.some((e) => e.text.includes("push(")), `its Pi transcript is readable (${log.entries.length} entries)`);
 
-  // The local seat works through Forkyard too: read and push over MCP, no git credentials.
-  const laptop = new Mcp(t.credentials.find((c) => c.agentId === "laptop")!.apiKey);
-  const listed = await laptop.call<{ files: string[] }>("list_files");
-  const pushed = await laptop.call<{ commit: string }>("push_files", { message: "docs: from the laptop", files: [{ path: "notes/laptop.md", content: "hi from MCP\n" }] });
-  const back = await laptop.call<{ files: { path: string; content: string | null }[] }>("read_files", { paths: ["notes/laptop.md"] });
-  check(listed.data.files.includes("README.md") && back.data.files[0]?.content === "hi from MCP\n", `a local seat pushes and reads its fork over MCP (${pushed.data.commit.slice(0, 7)})`);
-  let laptopReviewed = false;
-  for (let i = 0; i < 60 && !laptopReviewed; i++) {
-    const d = await api<{ agents: { id: string; status: string; headCommit: string | null }[] }>(path);
-    const a = d.agents.find((x) => x.id === "laptop");
-    laptopReviewed = a?.status === "reviewed" && a.headCommit === pushed.data.commit;
-    if (!laptopReviewed) await sleep(1000);
-  }
-  check(laptopReviewed, "that push is reviewed like any other");
-  const badPath = await laptop.call("push_files", { message: "x", files: [{ path: "../escape.md", content: "x" }] }).then(() => "accepted", (e) => String(e));
-  check(badPath !== "accepted", "a path that climbs out of the repo is refused");
   await api(`${path}/abandon`, { body: { reason: "e2e done" } });
 }
 
@@ -315,7 +311,7 @@ async function main() {
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
   }).then((r) => r.text());
   check(MCP_TOOLS.every(([name]) => list.includes(`"${name}"`)), `MCP exposes all ${MCP_TOOLS.length} tools`);
-  const ws = await mcp.call<{ git: { remote: string; token: string }; agent: { id: string } }>("workspace_get");
+  const ws = await mcp.call<{ git: { remote: string }; agent: { id: string } }>("workspace_get");
   check(ws.data.agent.id === "eve", "workspace_get infers the agent from its key");
   await expectStatus(api(`/yards/${yardId}/tasks/validate-todo-titles`, { key: eve }), 403, "agent key cannot read another task");
   await expectStatus(api(`/yards/${yardId}/tasks/${t2.task.id}/decide`, { key: eve, body: { mode: "winner", winnerAgentId: "eve" } }), 403, "plain agent cannot decide");
@@ -327,19 +323,22 @@ async function main() {
   }).catch((e) => String(e));
   check(String(judge).includes("has not pushed"), "judge can preview decisions (and gets a clear error with nothing pushed)");
 
-  // The fork token must not grant access to the base repo.
-  const baseRemote = ws.data.git.remote.replace(/[^/]+\.git$/, `${yardId}--base.git`);
-  const probe = await run("git", ["-c", `http.extraHeader=Authorization: Bearer ${ws.data.git.token}`, "ls-remote", baseRemote]).then(
-    () => "ok",
-    (e) => String(e),
-  );
-  check(probe !== "ok", "fork token is rejected by the base repo");
+  // Git at Forkyard's address: a seat's key opens its own fork and nobody else's.
+  check(ws.data.git.remote.includes(`/git/forkyard/`) && ws.data.git.remote.endsWith(`/${ws.data.agent.id}.git`), `the remote is on Forkyard (${ws.data.git.remote})`);
+  const tryGit = (remote: string, secret: string | null) =>
+    run("git", [...(secret ? ["-c", `http.extraHeader=Authorization: Bearer ${secret}`] : []), "-c", "credential.helper=", "-c", "core.askPass=true", "ls-remote", remote]).then(
+      () => "ok",
+      (e) => String(e),
+    );
+  check((await tryGit(ws.data.git.remote, null)) !== "ok", "git without a password is turned away");
+  check((await tryGit(ws.data.git.remote.replace(/[^/]+\.git$/, "judy.git"), eve)) !== "ok", "a seat's key can't open another seat's fork");
+  check((await tryGit(ws.data.git.remote.replace(/[^/]+\/[^/]+\.git$/, `${yardId}--base.git`), eve)) !== "ok", "nor the base repo");
 
-  // A push via plain git still works with only the token.
-  const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${yardId}`, ws.data.git.token, { name: "Eve", email: "e@e" });
+  // Plain git: clone and push with the seat's key as the password.
+  const g = await Git.clone(ws.data.git.remote, `${process.env.TMPDIR ?? "/tmp"}/fy-e2e-${yardId}`, eve, { name: "Eve", email: "e@e" });
   await g.write("NOTES.md", "plain git works\n");
   const sha = await g.commitAndPush("notes");
-  check(/^[0-9a-f]{40}$/.test(sha), "plain git push with the scoped token");
+  check(/^[0-9a-f]{40}$/.test(sha), "plain git push through Forkyard's address");
 
   // Who wrote each line of the base, and why: the seed's assembled decision credits its agents.
   const why = await api<{ spans: { agent: string | null; intent: { summary: string } | null; change: { task: { id: string } | null } | null }[] }>(

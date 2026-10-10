@@ -55,6 +55,17 @@ export async function principalForToken(env: Env, origin: string, token: string)
       .first<{ yard_id: string; task_id: string; agent_id: string; role: string }>();
     return row ? agentPrincipal(row.yard_id, row.task_id, row.agent_id, row.role) : null;
   }
+  if (token.startsWith("fyp_")) {
+    // A person's access token (git's password): acts as that person.
+    const row = await env.DB.prepare(
+      `SELECT t.id, t.user_id, u.name FROM access_tokens t JOIN "user" u ON u.id = t.user_id WHERE t.token_hash = ? AND t.revoked_at IS NULL`,
+    )
+      .bind(await sha256Hex(token))
+      .first<{ id: string; user_id: string; name: string }>();
+    if (!row) return null;
+    await env.DB.prepare("UPDATE access_tokens SET last_used_at = ? WHERE id = ?").bind(new Date().toISOString(), row.id).run();
+    return { kind: "user", userId: row.user_id, label: row.name || `user:${row.user_id}`, via: "oauth" };
+  }
   if (env.FORKYARD_ADMIN_KEY && timingSafeEqual(token, env.FORKYARD_ADMIN_KEY)) return { kind: "admin", via: "admin-key", label: "admin-key" };
 
   const claims = await verifyAccessToken(env, origin, token);

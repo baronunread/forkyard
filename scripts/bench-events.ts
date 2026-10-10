@@ -27,8 +27,8 @@ async function main() {
     body: { title: "event bench", agents: [{ name: "Pusher", harness: "bench" }] },
   });
   const agentId = task.agents[0]!.id;
-  const ws = await api<{ git: { remote: string; token: string } }>(`/yards/${yardId}/tasks/${task.task.id}/agents/${agentId}/workspace`);
-  const git = await Git.clone(ws.git.remote, join(tmpdir(), `fy-evbench-${yardId}`), ws.git.token, { name: "Pusher", email: "p@bench" });
+  const ws = await api<{ git: { remote: string } }>(`/yards/${yardId}/tasks/${task.task.id}/agents/${agentId}/workspace`);
+  const git = await Git.clone(ws.git.remote, join(tmpdir(), `fy-evbench-${yardId}`), task.credentials[0]!.apiKey, { name: "Pusher", email: "p@bench" });
   if (useK2) {
     const k = await api<{ configured: boolean }>(`/yards/${yardId}/k2/poll`, { body: { seconds: 300 } });
     if (!k.configured) console.warn("K2 is not configured on this deployment; reporting the live path only.");

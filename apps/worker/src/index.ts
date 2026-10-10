@@ -1,4 +1,5 @@
 import { AGENTS_MD_TEMPLATE, llmsTxt, MCP_TOOLS } from "@forkyard/shared";
+import { gitProxy, isForkyardGitPath } from "./git-proxy";
 import { Hono, type MiddlewareHandler } from "hono";
 import { api, type HonoEnv } from "./api";
 import { assertYard, authenticate, bearer, principalForToken } from "./auth";
@@ -90,6 +91,9 @@ app.get("/AGENTS.md", (c) => c.body(AGENTS_MD_TEMPLATE, 200, { "Content-Type": "
 app.get("/healthz", (c) => c.json({ ok: true }));
 
 
+// Git at Forkyard's address (/git/<owner>/<yard>/<task>/<agent>.git), signed in with an access token.
+app.all("/git/*", async (c, next) => (isForkyardGitPath(new URL(c.req.url).pathname) ? gitProxy(c.env, c.req.raw) : next()));
+
 // Local Artifacts emulator: git smart HTTP (dev only).
 app.all("/git/*", async (c) => {
   if (c.env.ARTIFACTS_MODE !== "local" && c.env.ARTIFACTS) return c.json({ error: "git is served by Artifacts in this deployment" }, 404);
@@ -125,9 +129,6 @@ function routeTable(origin: string) {
       "/yards/{yard}/tasks/{task}/agents/{agent}/claims": { post: { summary: "claim_paths" } },
       "/yards/{yard}/tasks/{task}/agents/{agent}/claims/release": { post: { summary: "release_paths" } },
       "/yards/{yard}/tasks/{task}/agents/{agent}/intents": { post: { summary: "intent_record" } },
-      "/yards/{yard}/tasks/{task}/agents/{agent}/files": { get: { summary: "list_files (?prefix=)" } },
-      "/yards/{yard}/tasks/{task}/agents/{agent}/files/read": { post: { summary: "read_files" } },
-      "/yards/{yard}/tasks/{task}/agents/{agent}/push": { post: { summary: "push_files" } },
       "/yards/{yard}/tasks/{task}/agents/{agent}/diff": { get: { summary: "Fork diff summary" } },
       "/yards/{yard}/tasks/{task}/agents/{agent}/reviews": { get: { summary: "review_get" } },
       "/bench": { get: { summary: "Benchmark runs" } },

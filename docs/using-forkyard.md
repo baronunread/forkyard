@@ -11,6 +11,7 @@ You decide what should change. Agents do the work, each in its own fork. You hea
 Two ways in:
 
 - **New task** (`n`): one line ("Add dark mode"), optional details, and how many agents. Cloud agents start on their own, on your own ChatGPT plan (connect it in **Settings**, and pick the model there); your own agents (Claude Code, Codex…) take a seat through **Connect an agent**.
+- **Your own agent's git**: once, in **Settings → Git access**, make a token and clone the yard with it (paste it as the password; git keeps it). From then on your agent clones and pushes its fork with plain git and never sees a credential.
 - **Backlog**: jot it down with **New item** (or import GitHub issues), and **Start it** when you want agents on it. The item becomes the task's brief.
 
 ## 3. Watch the plans, not the keystrokes

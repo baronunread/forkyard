@@ -1,6 +1,6 @@
 # Forkyard
 
-**An agent-native Git platform on Cloudflare.** A task fans out to several coding agents; each one gets its own [Artifacts](https://developers.cloudflare.com/artifacts/) fork, a scoped git token and the project's `AGENTS.md`. Forkyard tells agents when they are about to collide *while they work*, reviews every push, and **merges the best fork on its own** once the agents settle.
+**An agent-native Git platform on Cloudflare.** A task fans out to several coding agents; each one gets its own [Artifacts](https://developers.cloudflare.com/artifacts/) fork, a git remote at Forkyard's own address and the project's `AGENTS.md`. Forkyard tells agents when they are about to collide *while they work*, reviews every push, and **merges the best fork on its own** once the agents settle.
 
 People are pulled in only when they're needed: an agent that is truly blocked calls `ask_human`, or no fork clears the review bar and autopilot hands the decision over. Both land in one inbox with one-click answers. Everything else is the agents' job; every UI action is also an MCP tool and a REST route, and plain `git clone` / `git push` is all an agent needs.
 
@@ -38,7 +38,7 @@ Other scripts:
 | --- | --- |
 | `bun run seed [--pace=fast\|demo\|slow] [--no-decide] [--yard=id] [--name="…"]` | Demo story for the video: 4 agents, small commits pushed concurrently, a claim overlap, a change overlap, reviews, and an assembled decision (autopilot off: a person decides this one). |
 | `bun run demo:inbox [--yard=billing]` | Three tasks in one yard: one that autopilot merges by itself, one where an agent asks a person which exchange rate to use, one where no fork clears the bar and autopilot hands the decision over. |
-| `bun run e2e [--cleanup]` | Runs the seed and asserts 35 things: fan-out, overlaps, git-sourced intents, reviews, decision, MCP tool parity, permissions (agents can't decide, can't touch other tasks, fork tokens can't reach the base repo), GitHub sign-in through emulate, MCP OAuth for both kinds of seat, the inbox, autopilot holding while an agent waits on a person and merging once it's answered, and cron cleanup. |
+| `bun run e2e [--cleanup]` | Runs the seed and asserts 35 things: fan-out, overlaps, git-sourced intents, reviews, decision, MCP tool parity, permissions (agents can't decide, can't touch other tasks, a seat's git key opens only its own fork, access tokens can be revoked), GitHub sign-in through emulate, MCP OAuth for both kinds of seat, the inbox, autopilot holding while an agent waits on a person and merging once it's answered, and cron cleanup. |
 | `bun run swarm [--agents=200 --tasks=4 --rounds=3 --concurrency=64]` | Hundreds or thousands of agents on one yard: each gets its own fork and pushes real commits over git smart HTTP, working lanes of the codebase with shared hot files, so collisions are real. Reports fan-out, push → visible, push → reviewed, pushes/s and overlaps. |
 | `bun run bench:fork [--levels=1,5,20,50 --rounds=3]` | Fork latency at 1/5/20/50 concurrent forks, p50/p95/p99. |
 | `bun run bench:events [--pushes=20] [--k2]` | `git push` → event on a WebSocket (what the UI sees); optional K2 spike numbers. |
@@ -100,7 +100,7 @@ flowchart LR
   k2[("K2 stream<br/>(optional history)")]
   builds["Workers Builds<br/>preview per agent"]
 
-  A1 & A2 & A3 -- "git clone / push<br/>(scoped token)" --> art
+  A1 & A2 & A3 -- "git clone / push" --> gitp["/git proxy<br/>(checks the seat)"] --> art
   A1 & A2 & A3 -- "workspace_get, claim_paths,<br/>intent_record, …" --> mcp
   human --> rest
   rest & mcp --> yard
@@ -159,7 +159,7 @@ Add `/mcp` to any MCP client (Claude Code, Codex, Cursor, …). It is an OAuth 2
 | `task_abandon` | `POST …/tasks/:task/abandon` |
 | `bench_fork` | `POST /api/bench/fork` |
 
-When an agent acts as a seat, ids default to that seat, so `workspace_get` takes no arguments. Seats are scoped to one task; only people, agents acting as a person, and `judge` seats can decide. Fork tokens are scoped to one fork and expire; agents never get the base repo's write path.
+When an agent acts as a seat, ids default to that seat, so `workspace_get` takes no arguments. Seats are scoped to one task; only people, agents acting as a person, and `judge` seats can decide. Git goes through Forkyard: `/git/<owner>/<yard>/<task>/<agent>.git` is a seat's fork, `/git/<owner>/<yard>.git` the yard's main (read-only). The password is a person's access token (Settings → Git access, `fyp_…`) or a seat key (`fy_…`); Forkyard checks the seat, mints a short-lived Artifacts token per request and streams it through, so agents never see a credential and never get the base repo's write path.
 
 ### Accounts
 
@@ -184,7 +184,7 @@ People sign in with **GitHub** or **Google** through [Better Auth](https://www.b
 
 Measured with the scripts above. **The local rows use the Artifacts emulator under `wrangler dev` and only show Forkyard's own overhead**; production rows need an Artifacts beta account and are produced by the same scripts (they land in `bench-results/` and on the in-app Benchmarks page).
 
-**Swarm** (`bun run swarm`, every agent a real git client with its own fork and scoped token; 0 errors in both runs):
+**Swarm** (`bun run swarm`, every agent a real git client with its own fork and seat key; 0 errors in both runs):
 
 | Agents · tasks | Fan-out: all forks ready | Pushes | Push → visible on the live feed (p50 / p95) | Push → reviewed (p50) | Environment |
 | --- | --- | --- | --- | --- | --- |

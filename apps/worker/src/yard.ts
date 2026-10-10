@@ -456,13 +456,6 @@ export class Yard extends DurableObject<Env> {
       await this.append({ type: "agent.failed", taskId: task.id, agentId: agent.id, data: { agent: failed, error } });
       return failed;
     }
-    if (token)
-      this.sql.exec(
-        "INSERT OR REPLACE INTO fork_tokens (task_id, agent_id, token, expires_at) VALUES (?, ?, ?, NULL)",
-        task.id,
-        agent.id,
-        token,
-      );
     await this.env.DB.prepare(
       "UPDATE agents SET status = 'ready', fork_remote = ?, fork_ms = ? WHERE yard_id = ? AND task_id = ? AND id = ?",
     )
@@ -498,7 +491,7 @@ export class Yard extends DurableObject<Env> {
     return p;
   }
 
-  async workspace(taskId: string, agentId: string): Promise<Workspace> {
+  async workspace(taskId: string, agentId: string, remote: string): Promise<Workspace> {
     const yard = await this.yard();
     const agent = await this.waitForAgent(taskId, agentId);
     if (agent.status === "failed") throw new Error(`fork for ${agentId} failed; create a new task or retry`);
@@ -506,27 +499,6 @@ export class Yard extends DurableObject<Env> {
     const task = await this.env.DB.prepare("SELECT * FROM tasks WHERE yard_id = ? AND id = ?").bind(yard.id, taskId).first();
     if (!task) throw new Error("task not found");
 
-    // Hand out the fork's initial token once; mint scoped, expiring tokens after that.
-    let token: string;
-    let tokenExpiresAt: string | null = null;
-    const stored = this.sql
-      .exec<{ token: string; expires_at: string | null }>("SELECT token, expires_at FROM fork_tokens WHERE task_id = ? AND agent_id = ?", taskId, agentId)
-      .toArray()[0];
-    if (stored) {
-      token = stored.token;
-      tokenExpiresAt = stored.expires_at;
-      this.sql.exec("DELETE FROM fork_tokens WHERE task_id = ? AND agent_id = ?", taskId, agentId);
-    } else {
-      const repo = await this.artifacts().get(agent.forkName);
-      try {
-        const t = await repo.createToken("write", num(this.env.TOKEN_TTL_SECONDS, 4 * 3600));
-        token = t.plaintext;
-        tokenExpiresAt = t.expiresAt;
-      } finally {
-        disposeRepo(repo);
-      }
-    }
-    const remote = agent.forkRemote!;
     const t = {
       id: String(task.id),
       yardId: yard.id,
@@ -541,13 +513,7 @@ export class Yard extends DurableObject<Env> {
       agent,
       task: t,
       yard,
-      git: {
-        remote,
-        token,
-        tokenExpiresAt,
-        branch: yard.defaultBranch,
-        cloneCommand: `git -c http.extraHeader="Authorization: Bearer ${token}" clone ${remote} ${agent.id}`,
-      },
+      git: { remote, branch: yard.defaultBranch, cloneCommand: `git clone ${remote} ${agent.id}` },
       agentsMd: AGENTS_MD_TEMPLATE,
       digest: await this.digest(taskId, agentId),
     };

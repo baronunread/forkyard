@@ -1,6 +1,6 @@
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { AskInput, ClaimInput, CreateTaskInput, CreateYardInput, DecideInput, describeEvent, IntentInput, ListFilesInput, MCP_TOOLS, PlanInput, PushFilesInput, ReadFilesInput } from "@forkyard/shared";
+import { AskInput, ClaimInput, CreateTaskInput, CreateYardInput, DecideInput, describeEvent, IntentInput, MCP_TOOLS, PlanInput } from "@forkyard/shared";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Principal } from "./auth";
@@ -61,7 +61,7 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
   const server = new McpServer(
     { name: "forkyard", version: "0.1.0" },
     {
-      instructions: `Forkyard: agent-native Git on Cloudflare. Start with workspace_get, plan before editing, then read_files / push_files to work in your fork (no git credentials needed). Work on your own; ask_human only when truly blocked. Docs: ${origin}/llms.txt`,
+      instructions: `Forkyard: agent-native Git on Cloudflare. Start with workspace_get, plan before editing, then clone your fork's remote and push with plain git (the person's git credential helper signs you in). Work on your own; ask_human only when truly blocked. Docs: ${origin}/llms.txt`,
     },
   );
 
@@ -136,13 +136,13 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
     { description: desc.workspace_get, inputSchema: z.object({ ...scope, agentId: z.string().optional() }) },
     wrap(async (a) => {
       const s = resolve(p, a);
-      const ws = await svc.workspaceGet(env, p, s.yardId, s.taskId, s.agentId);
+      const ws = await svc.workspaceGet(env, p, s.yardId, s.taskId, origin, s.agentId);
       return ok(
         ws,
         [
           `# Workspace for ${ws.agent.name} on "${ws.task.title}"`,
           `\n## Task brief\n${ws.task.brief || "(none)"}`,
-          `\n## Git\nremote: ${ws.git.remote}\nbranch: ${ws.git.branch}\ntoken: ${ws.git.token}${ws.git.tokenExpiresAt ? ` (expires ${ws.git.tokenExpiresAt})` : ""}\nclone: ${ws.git.cloneCommand}`,
+          `\n## Git\nremote: ${ws.git.remote}\nbranch: ${ws.git.branch}\nclone: ${ws.git.cloneCommand}\nGit signs in with the person's Forkyard access token, kept by their git credential helper; you never handle it. If git asks for a password, ask the person to set up git access (Settings → Git access).`,
           `\n## What others are doing\n${ws.digest}`,
           `\n## AGENTS.md\n${ws.agentsMd}`,
         ].join("\n"),
@@ -188,34 +188,6 @@ export function buildMcpServer(env: Env, p: Principal, origin: string): McpServe
       const s = resolve(p, a);
       const intent = await svc.intentRecord(env, p, s.yardId, s.taskId, { summary: a.summary, why: a.why, details: a.details, agentId: s.agentId });
       return ok(intent, `Recorded intent ${intent.id}. It will be attached to your next push. Also commit it as .forkyard/intent.md.`);
-    }),
-  );
-
-  server.registerTool(
-    "list_files",
-    { description: desc.list_files, inputSchema: ListFilesInput.extend({ ...scope, agentId: z.string().optional() }) },
-    wrap(async (a) => {
-      const s = resolve(p, a);
-      return ok(await svc.forkList(env, p, s.yardId, s.taskId, { prefix: a.prefix, agentId: s.agentId }));
-    }),
-  );
-
-  server.registerTool(
-    "read_files",
-    { description: desc.read_files, inputSchema: ReadFilesInput.extend({ ...scope, agentId: z.string().optional() }) },
-    wrap(async (a) => {
-      const s = resolve(p, a);
-      return ok(await svc.forkRead(env, p, s.yardId, s.taskId, { paths: a.paths, agentId: s.agentId }));
-    }),
-  );
-
-  server.registerTool(
-    "push_files",
-    { description: desc.push_files, inputSchema: PushFilesInput.extend({ ...scope, agentId: z.string().optional() }) },
-    wrap(async (a) => {
-      const s = resolve(p, a);
-      const r = await svc.forkPush(env, p, s.yardId, s.taskId, { message: a.message, files: a.files, agentId: s.agentId });
-      return ok(r, `Pushed ${r.commit.slice(0, 7)} (${r.files} file${r.files === 1 ? "" : "s"}). It will be reviewed.`);
     }),
   );
 

@@ -12,9 +12,6 @@ import {
   Slug,
   DecideInput,
   IntentInput,
-  ListFilesInput,
-  PushFilesInput,
-  ReadFilesInput,
   type Workspace,
 } from "@forkyard/shared";
 import { Hono } from "hono";
@@ -22,6 +19,7 @@ import { z } from "zod";
 import { assertPerson, AuthError, authenticate, devMode, isMember, type Principal } from "./auth";
 import { githubAccessToken, ME, origin, recordSeatChoice, sessionFor } from "./better-auth";
 import * as chatgpt from "./chatgpt";
+import * as gitAccess from "./git-proxy";
 import type { Env } from "./env";
 import { routeArtifactsEvent, type ArtifactsPushEvent } from "./review";
 import * as backlog from "./backlog";
@@ -76,6 +74,12 @@ export const api = new Hono<HonoEnv>()
   .get("/yard-names", zValidator("query", z.object({ name: z.string().max(80).default("") })), async (c) =>
     c.json(await svc.yardNameCheck(c.env, c.get("principal"), origin(c.env, c.req.raw), c.req.valid("query").name)),
   )
+  // Access tokens: git's password for Forkyard's git address. Shown once.
+  .get("/account/tokens", async (c) => c.json(await gitAccess.accessTokens(c.env, c.get("principal"))))
+  .post("/account/tokens", zValidator("json", z.object({ name: z.string().trim().min(1).max(60) })), async (c) =>
+    c.json(await gitAccess.accessTokenCreate(c.env, c.get("principal"), c.req.valid("json").name), 201),
+  )
+  .delete("/account/tokens/:id", async (c) => c.json(await gitAccess.accessTokenRevoke(c.env, c.get("principal"), c.req.param("id"))))
   .get("/account/limits", async (c) => c.json(await limitsReport(c.env, c.get("principal"))))
 
   // ── your own model subscription (ChatGPT, through pi-ai), used for reviews in yards you own ──
@@ -200,7 +204,7 @@ export const api = new Hono<HonoEnv>()
           await Promise.all(
             res.agents.map(async (a) => {
               try {
-                const ws: Workspace = await svc.workspaceGet(c.env, p, yard, res.task.id, a.id);
+                const ws: Workspace = await svc.workspaceGet(c.env, p, yard, res.task.id, origin(c.env, c.req.raw), a.id);
                 await line({ kind: "workspace", agentId: a.id, workspace: ws, apiKey: res.credentials.find((k) => k.agentId === a.id)?.apiKey });
               } catch (err) {
                 await line({ kind: "error", agentId: a.id, error: err instanceof Error ? err.message : String(err) });
@@ -259,7 +263,7 @@ export const api = new Hono<HonoEnv>()
   // ── agents ──
   .get("/yards/:yard/tasks/:task/agents/:agent/workspace", zValidator("param", agentParam), async (c) => {
     const { yard, task, agent } = c.req.valid("param");
-    return c.json(await svc.workspaceGet(c.env, c.get("principal"), yard, task, agent));
+    return c.json(await svc.workspaceGet(c.env, c.get("principal"), yard, task, origin(c.env, c.req.raw), agent));
   })
   .post("/yards/:yard/tasks/:task/agents/:agent/claims", zValidator("param", agentParam), zValidator("json", ClaimInput), async (c) => {
     const { yard, task, agent } = c.req.valid("param");
@@ -281,18 +285,6 @@ export const api = new Hono<HonoEnv>()
   .post("/yards/:yard/tasks/:task/agents/:agent/intents", zValidator("param", agentParam), zValidator("json", IntentInput), async (c) => {
     const { yard, task, agent } = c.req.valid("param");
     return c.json(await svc.intentRecord(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }), 201);
-  })
-  .get("/yards/:yard/tasks/:task/agents/:agent/files", zValidator("param", agentParam), zValidator("query", ListFilesInput), async (c) => {
-    const { yard, task, agent } = c.req.valid("param");
-    return c.json(await svc.forkList(c.env, c.get("principal"), yard, task, { ...c.req.valid("query"), agentId: agent }));
-  })
-  .post("/yards/:yard/tasks/:task/agents/:agent/files/read", zValidator("param", agentParam), zValidator("json", ReadFilesInput), async (c) => {
-    const { yard, task, agent } = c.req.valid("param");
-    return c.json(await svc.forkRead(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }));
-  })
-  .post("/yards/:yard/tasks/:task/agents/:agent/push", zValidator("param", agentParam), zValidator("json", PushFilesInput), async (c) => {
-    const { yard, task, agent } = c.req.valid("param");
-    return c.json(await svc.forkPush(c.env, c.get("principal"), yard, task, { ...c.req.valid("json"), agentId: agent }), 201);
   })
   .post("/yards/:yard/tasks/:task/agents/:agent/asks", zValidator("param", agentParam), zValidator("json", AskInput), async (c) => {
     const { yard, task, agent } = c.req.valid("param");

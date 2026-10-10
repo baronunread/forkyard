@@ -348,9 +348,9 @@ async function main() {
       const mcp = new Mcp(key);
       mcps.set(script.name, mcp);
       await beat(400 * i);
-      const ws = await mcp.call<{ git: { remote: string; token: string } }>("workspace_get");
+      const ws = await mcp.call<{ git: { remote: string } }>("workspace_get");
       log(script.name, `workspace ready → ${ws.data.git.remote}`);
-      const git = await Git.clone(ws.data.git.remote, join(work, agentId), ws.data.git.token, {
+      const git = await Git.clone(ws.data.git.remote, join(work, agentId), key, {
         name: `${script.name} (${script.harness})`,
         email: `${agentId}@agents.forkyard.dev`,
       });
