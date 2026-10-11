@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "emulate": "0.12.1",
     "portless": "0.15.7",
     "typescript": "^5.9.0"
   },
