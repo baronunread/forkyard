@@ -7,3 +7,4 @@ dist/
 bench-results/*.tmp
 .forkyard-seed/
 apps/worker/types/
+data/browser-profile/
